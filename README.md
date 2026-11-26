@@ -31,7 +31,7 @@ Hub mode receives the compatible music-link protocol used by [bespoke_rustel](ht
 
 ## Publishing
 
-`Publish WASM to GitHub Pages` builds the GPUI application and JavaScript-enabled Rustel engine from pinned source and deploys on pushes to main/master or manual dispatch. Project-relative asset URLs work under `/gpui-rustel/`. A same-origin service worker supplies isolation headers for graphics on static Pages hosting. Remote samples require CORS. WebAudio starts only after a user gesture.
+`Publish WASM to GitHub Pages` builds the GPUI application and JavaScript-enabled Rustel engine from pinned source and deploys on pushes to main/master or manual dispatch. Project-relative asset URLs work under `/gpui-rustel/`. The single-threaded browser app starts directly over HTTPS without waiting for an isolation service worker. Remote samples require CORS. WebAudio starts only after a user gesture.
 
 Expected GitHub Pages entry: https://davehorner.github.io/gpui-rustel/ (redirects to the account's custom Pages domain when configured).
 
