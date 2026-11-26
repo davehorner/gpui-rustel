@@ -53,3 +53,17 @@ Open `/audio-validation.html` for the shipped host/worker/worklet browser integr
 GPUI integration is MIT OR Apache-2.0. Rustel engine and `wasm-audio` are AGPL-3.0-or-later, with source pin, patches, build scripts and license supplied in the downloadable web bundle. QuickJS and WASM libc notices are included. Vendored protocol and broker attribution is recorded in [vendor/README.md](vendor/README.md).
 
 The embedded Fox asset and its animation/conversion credits are listed in [assets/README.md](assets/README.md).
+
+### Android and constrained GPUs
+
+Phones use an aspect-preserving Nightshade render budget of 960x640 at up to
+25 frames/second with two readback slots. Every lane keeps its animated fox.
+`?safe=1` selects 640x480 at up to 15 frames/second on any device. Slow GPU
+readback applies backpressure instead of accumulating render submissions.
+Matching audio device rates reuse the initially prepared score and sample banks.
+JavaScript and viewer WASM ship together under a content-versioned directory;
+startup panics preserve the original Rust message in the visible error panel.
+
+The browser material texture arrays are bounded to 256-pixel layers and 64 layers
+per color space (about 43 MiB total with mipmaps), replacing the desktop-sized
+2.7 GiB reservation. Native material texture sizing is unchanged.

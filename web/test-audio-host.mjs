@@ -16,12 +16,12 @@ globalThis.fetch=async input=>{
 let holdInitialization=false;
 globalThis.Worker=class {
  constructor(){queueMicrotask(()=>this.onmessage({data:{kind:'ready'}}));}
- postMessage(data){if(data.kind==='load'&&holdInitialization&&(this.loads=(this.loads||0)+1)===2)return;if(data.kind==='load')queueMicrotask(()=>this.onmessage({data:{kind:'loaded',generation:data.generation,metadata:{cps:0.5,lanes:[]}}}));}
+ postMessage(data){if(data.kind==='load')this.loads=(this.loads||0)+1;if(data.kind==='load'&&holdInitialization&&this.loads===2)return;if(data.kind==='load')queueMicrotask(()=>this.onmessage({data:{kind:'loaded',generation:data.generation,metadata:{cps:0.5,lanes:[]}}}));}
  terminate(){}
 };
 let permitted=false,nodes=0;
 globalThis.AudioContext=class {
- constructor(){this.sampleRate=48000;this.waiters=[];this.audioWorklet={addModule:async()=>{}};}
+ constructor(){this.sampleRate=holdInitialization?44100:48000;this.waiters=[];this.audioWorklet={addModule:async()=>{}};}
  resume(){if(permitted){for(const resolve of this.waiters.splice(0))resolve();return Promise.resolve();}return new Promise(resolve=>this.waiters.push(resolve));}
  close(){return Promise.resolve();}
 };
@@ -40,7 +40,7 @@ const make=()=>new LocalAudioHost({local_message(){}});
 const command=(host,action)=>host.command({session:host.session,generation:host.generation,request:crypto.randomUUID(),transport:{action}});
 // Browsers that block autoplay must still finish startup and accept an explicit Play.
 let host=make();await host.start();await settle();assert.equal(host.demo,'Bachata.strudel');assert.equal(host.score.source,files.get('Bachata.strudel').toString());assert.equal(host.playing,false);assert.equal(nodes,0);
-permitted=true;await command(host,'play');assert.equal(host.playing,true);assert.equal(nodes,1,'autoplay and Play must share one audio graph');
+permitted=true;await command(host,'play');assert.equal(host.playing,true);assert.equal(nodes,1,'autoplay and Play must share one audio graph');assert.equal(host.worker.loads,1,'matching sample rates must reuse the prepared banks instead of loading a second engine');
 await command(host,'pause');assert.equal(host.playing,false);await command(host,'play');assert.equal(host.playing,true);assert.equal(nodes,1);host.close();
 // Existing browser audio permission starts the default arrangement without a click.
 host=make();await host.start();await settle();assert.equal(host.playing,true);assert.equal(nodes,2);host.close();

@@ -19,9 +19,17 @@ gpui_kit::assets::icon_assets!(
     ]
 );
 thread_local! {static APPLICATION:RefCell<Option<ApplicationHandle>>=const {RefCell::new(None)};}
+#[wasm_bindgen(
+    inline_js = "export function reportRustelPanic(message) { console.error(message); queueMicrotask(() => window.dispatchEvent(new CustomEvent('rustel-panic', {detail: message}))); }"
+)]
+extern "C" {
+    #[wasm_bindgen(js_name=reportRustelPanic)]
+    fn report_panic(message: &str);
+}
 #[wasm_bindgen]
 pub fn run(hub: Option<String>) -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
+    std::panic::set_hook(Box::new(|info| report_panic(&info.to_string())));
     let _ = console_log::init_with_level(log::Level::Info);
     gpui_kit::platform::web_init();
     let bridge = Bridge::connect(hub.unwrap_or_else(|| "ws://127.0.0.1:9613".into()))

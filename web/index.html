@@ -4,11 +4,16 @@
 <body><div id="boot" role="status">Loading GPUI Rustel…<noscript>JavaScript is required to start this WebAssembly viewer.</noscript></div>
 <script type="module">
 const boot=document.querySelector('#boot');
-function failure(error){boot.hidden=false;boot.textContent=`GPUI Rustel could not start.\n${error?.stack||error}\n\nServe this folder over localhost or HTTPS and check browser graphics support.`;console.error(error);}
+let panicMessage=null;
+window.addEventListener('rustel-panic',event=>{panicMessage=String(event.detail);failure(panicMessage);});
+function failure(error){boot.hidden=false;boot.textContent=`GPUI Rustel could not start.\n${panicMessage||error?.stack||error}\n\nServe this folder over localhost or HTTPS and check browser graphics support.`;console.error(error);}
+// A cached page's worker/audio graph was closed on pagehide; create fresh GPU/audio owners.
+window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 window.addEventListener('error',event=>failure(event.error||event.message));
 window.addEventListener('unhandledrejection',event=>failure(event.reason));
 try {
-  const wasm=await import('./pkg/gpui_rustel.js');await wasm.default();
+  if(!navigator.gpu)throw Error('WebGPU is unavailable in this browser/device.');
+  const wasm=await import('./pkg/__VIEWER_VERSION__/gpui_rustel.js');await wasm.default();
   const params=new URLSearchParams(location.search);
   const local=!params.has('hub')&&params.get('audio')!=='native';
   wasm.run(local?'browser':(params.get('hub')||'ws://127.0.0.1:19613'));

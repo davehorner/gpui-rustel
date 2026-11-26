@@ -3125,6 +3125,7 @@ dependencies = [
  "gpui-nightshade",
  "gpui-pre-windows",
  "image",
+ "js-sys",
  "wasm-bindgen-futures",
  "windows 0.62.2",
 ]

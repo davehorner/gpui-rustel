@@ -16,7 +16,9 @@ def main():
     tool=str(local) if local.exists() else shutil.which("wasm-bindgen")
     if not tool or subprocess.check_output([tool,"--version"],text=True).strip()!=f"wasm-bindgen {version}":
         raise SystemExit(f"Install the matching project tool: cargo install wasm-bindgen-cli --version {version} --locked --root target/wasm-tools")
-    subprocess.run([tool,str(ROOT/"target/wasm32-unknown-unknown/web/gpui_rustel_app.wasm"),"--target","web","--out-dir",str(args.out/"pkg"),"--no-typescript","--out-name","gpui_rustel"],check=True)
+    viewer_wasm=ROOT/"target/wasm32-unknown-unknown/web/gpui_rustel_app.wasm"
+    viewer_version=hashlib.sha256(viewer_wasm.read_bytes()).hexdigest()[:16]
+    subprocess.run([tool,str(viewer_wasm),"--target","web","--out-dir",str(args.out/"pkg"/viewer_version),"--no-typescript","--out-name","gpui_rustel"],check=True)
     audio=APP/"wasm-audio"
     subprocess.run([sys.executable,str(audio/"build.py"),"--out",str(args.out/"audio")],check=True,cwd=ROOT)
     scores=args.out/"scores";scores.mkdir(exist_ok=True)
@@ -30,7 +32,7 @@ def main():
     host_version=hashlib.sha256((APP/"web/audio-host.js").read_bytes()).hexdigest()[:16]
     for file in (APP/"web").iterdir():
         if file.suffix==".html":
-            (args.out/file.name).write_text(file.read_text(encoding="utf-8").replace("__AUDIO_HOST_VERSION__",host_version),encoding="utf-8",newline="\n")
+            (args.out/file.name).write_text(file.read_text(encoding="utf-8").replace("__AUDIO_HOST_VERSION__",host_version).replace("__VIEWER_VERSION__",viewer_version),encoding="utf-8",newline="\n")
         elif file.suffix in {".js",".json"}:shutil.copyfile(file,args.out/file.name)
     (args.out/"javascript-demos.json").write_text(json.dumps(catalog,indent=2)+"\n",encoding="utf-8")
     (args.out/".nojekyll").touch()

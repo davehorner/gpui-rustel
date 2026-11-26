@@ -41,7 +41,7 @@ export class LocalAudioHost {
       }catch(error){this.worker.postMessage({kind:'decoded',request:data.request,error:String(error)});}return;
     }
     if(data.kind==='loaded'&&this.loading?.generation===data.generation){
-      const load=this.loading;clearTimeout(load.timer);this.loading=null;this.progress=null;this.generation=data.generation;this.score=load.score;this.demo=load.demo;this.frame=0;this.events=[];this.stereo=null;this.error=null;this.metadata=data.metadata;
+      const load=this.loading;clearTimeout(load.timer);this.loading=null;this.progress=null;this.generation=data.generation;this.score=load.score;this.demo=load.demo;this.frame=0;this.events=[];this.stereo=null;this.error=null;this.metadata=data.metadata;this.preparedSampleRate=load.sampleRate;this.preloadedForAudio=!this.node;
       this.node?.port.postMessage({kind:'reset',generation:this.generation});this.node?.port.postMessage({kind:'play',playing:this.playing});
       this.publish();load.resolve();
     }
@@ -54,7 +54,7 @@ export class LocalAudioHost {
     return new Promise((resolve,reject)=>{
       const generation=++this.loadSequence;
       const timer=setTimeout(()=>this.cancelLoad('Score/sample loading timed out after 60 seconds'),60000);
-      this.loading={generation,score,demo,resolve,reject,timer};this.progress='Preparing score and samples…';
+      this.loading={generation,score,demo,resolve,reject,timer,sampleRate:this.sampleRate};this.progress='Preparing score and samples…';
       this.worker.postMessage({kind:'load',generation,score,sampleRate:this.sampleRate});
     });
   }
@@ -87,6 +87,8 @@ export class LocalAudioHost {
   async initializeAudio(){
     await this.context.audioWorklet.addModule('./audio-worklet.js');
     this.sampleRate=this.context.sampleRate;
+    const reuse=this.preloadedForAudio&&this.preparedSampleRate===this.sampleRate;
+    this.preloadedForAudio=false;
     this.node=new AudioWorkletNode(this.context,'rustel-pcm',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[2]});
     this.node.onprocessorerror=()=>this.failure('Audio worklet stopped');
     const pipe=new MessageChannel();
@@ -98,7 +100,10 @@ export class LocalAudioHost {
     };
     this.analyser=new AnalyserNode(this.context,{fftSize:1024,smoothingTimeConstant:0.6});
     this.gain=new GainNode(this.context,{gain:this.volume});this.node.connect(this.analyser);this.analyser.connect(this.gain);this.gain.connect(this.context.destination);
-    await this.load(structuredClone(this.score),this.demo);
+    // Reuse the graph and sample banks prepared at startup when the device rate
+    // matches. Building a second complete score here doubles peak sample memory.
+    if(reuse)this.node.port.postMessage({kind:'reset',generation:this.generation});
+    else await this.load(structuredClone(this.score),this.demo);
   }
   async playback(playing){
     this.playing=playing;if(!this.node)return;
