@@ -1,7 +1,7 @@
 // Browser-owned Rustel: real Rust/WASM scheduling and DSP, never a JS oscillator fallback.
 export class LocalAudioHost {
   constructor(viewer){
-    this.viewer=viewer;this.session=`browser-${crypto.randomUUID()}`;this.generation=0;this.loadSequence=0;this.progress=null;this.frame=0;this.playing=false;this.events=[];this.sequence=0;this.error=null;this.starting=false;this.sampleRate=48000;this.loading=null;this.volume=0.25;this.transportRequests=new Map();this.transportEpoch=0;
+    this.viewer=viewer;this.session=`browser-${crypto.randomUUID()}`;this.generation=0;this.loadSequence=0;this.progress=null;this.frame=0;this.playing=false;this.events=[];this.sequence=0;this.error=null;this.starting=false;this.sampleRate=48000;this.loading=null;this.volume=0.25;this.transportRequests=new Map();this.transportEpoch=0;this.audioInit=null;this.initializingAudio=false;
     this.worker=new Worker(new URL('./audio-worker.js',import.meta.url),{type:'module'});
     this.ready=new Promise((resolve,reject)=>{this.workerReady=resolve;this.workerFailure=reject;});
     this.worker.onmessage=({data})=>this.receive(data);
@@ -22,6 +22,7 @@ export class LocalAudioHost {
     this.demo=new URLSearchParams(location.search).has('mini')?Object.keys(this.demos)[0]:'Bachata.strudel';
     await this.load(structuredClone(this.demos[this.demo]),this.demo);
     this.timer=setInterval(()=>this.publish(),66);
+    this.tryAutoplay();
   }
   message(topic,value){this.viewer.local_message(topic,typeof value==='string'?value:JSON.stringify(value));}
   response(request,accepted,message=''){if(request)this.message('music/response',{request,accepted,message});}
@@ -61,11 +62,30 @@ export class LocalAudioHost {
     if(!this.loading)return;const load=this.loading;clearTimeout(load.timer);this.loading=null;this.progress=null;
     this.worker.postMessage({kind:'cancel-load'});load.reject(Error(reason));
   }
+  tryAutoplay(){
+    const epoch=this.transportEpoch;
+    this.enable().then(async()=>{
+      if(epoch===this.transportEpoch){await this.playback(true);this.publish();}
+    }).catch(error=>{
+      if(epoch===this.transportEpoch&&error?.name!=='NotAllowedError')this.failure(String(error));
+    });
+  }
   async enable(){
-    if(this.context){await this.context.resume();return;}
-    // Create/resume during the user's Play gesture, before asynchronous module loading.
-    this.context=new AudioContext({latencyHint:'interactive'});const resumed=this.context.resume();
-    await this.context.audioWorklet.addModule('./audio-worklet.js');await resumed;
+    if(!this.context)this.context=new AudioContext({latencyHint:'interactive'});
+    // Resume immediately in the Play gesture; also unlocks a pending autoplay attempt.
+    await this.context.resume();
+    if(!this.audioInit){
+      this.initializingAudio=true;
+      this.audioInit=this.initializeAudio().catch(async error=>{
+        await this.playback(false).catch(()=>{});
+        this.node?.disconnect();this.node?.port.close();this.analyser?.disconnect();this.gain?.disconnect();
+        this.node=null;this.analyser=null;this.gain=null;this.audioInit=null;throw error;
+      }).finally(()=>{this.initializingAudio=false;});
+    }
+    await this.audioInit;
+  }
+  async initializeAudio(){
+    await this.context.audioWorklet.addModule('./audio-worklet.js');
     this.sampleRate=this.context.sampleRate;
     this.node=new AudioWorkletNode(this.context,'rustel-pcm',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[2]});
     this.node.onprocessorerror=()=>this.failure('Audio worklet stopped');
@@ -90,12 +110,12 @@ export class LocalAudioHost {
   async command(command){
     if(command.session!==this.session||command.generation!==this.generation)throw Error('Stale browser score generation');
     const action=command.transport?.action;
-    if(this.loading||this.starting){if(action==='stop')this.cancelLoad();else if(action!=='pause')throw Error('Browser audio is loading');}
+    if(this.loading||this.starting){if(action==='stop')this.cancelLoad();else if(action!=='pause'&&!(action==='play'&&this.initializingAudio&&!this.starting))throw Error('Browser audio is loading');}
     if(command.transport){
       const action=command.transport.action;
       if(action==='play'){const epoch=++this.transportEpoch;this.starting=true;try{await this.enable();if(epoch!==this.transportEpoch)throw Error('Play cancelled');await this.playback(true);}finally{this.starting=false;}}
       else if(action==='pause'){this.transportEpoch++;await this.playback(false);}
-      else if(action==='stop'){this.transportEpoch++;await this.playback(false);await this.load(structuredClone(this.score),this.demo);}
+      else if(action==='stop'){this.transportEpoch++;await this.playback(false);if(this.initializingAudio)await this.audioInit.catch(()=>{});await this.load(structuredClone(this.score),this.demo);}
       else throw Error('Browser audio does not implement seek');
     }else if(command.demo){
       if(!Object.hasOwn(this.demos,command.demo))throw Error('Unknown browser demo');
@@ -134,5 +154,5 @@ export class LocalAudioHost {
       this.message('music/audio',{version:1,session:this.session,generation:this.generation,sequence:++this.sequence,stream_id:1,epoch:this.generation,end_frame:this.frame,sample_rate:this.sampleRate,device_time:this.frame/this.sampleRate,scope:Array.from(scope),spectrum:Array.from(spectrum,v=>Number.isFinite(v)?v:-120),sides:Array.from(this.stereo.left,(left,i)=>[left,this.stereo.right[i]])});
     }
   }
-  close(){clearInterval(this.timer);window.removeEventListener('rustel-command',this.onCommand);this.worker.terminate();this.node?.disconnect();this.context?.close();}
+  close(){this.transportEpoch++;clearInterval(this.timer);window.removeEventListener('rustel-command',this.onCommand);this.worker.terminate();this.node?.disconnect();this.context?.close();}
 }

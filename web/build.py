@@ -27,8 +27,11 @@ def main():
     banks=args.out/"banks";banks.mkdir(exist_ok=True)
     for name in ["sample-banks.json","gm-fonts.json"]:
         shutil.copyfile(ROOT/".build-sources/rustel-browser-engine/crates/runtime/assets"/name,banks/name)
+    host_version=hashlib.sha256((APP/"web/audio-host.js").read_bytes()).hexdigest()[:16]
     for file in (APP/"web").iterdir():
-        if file.suffix in {".html",".js",".json"}:shutil.copyfile(file,args.out/file.name)
+        if file.suffix==".html":
+            (args.out/file.name).write_text(file.read_text(encoding="utf-8").replace("__AUDIO_HOST_VERSION__",host_version),encoding="utf-8",newline="\n")
+        elif file.suffix in {".js",".json"}:shutil.copyfile(file,args.out/file.name)
     (args.out/"javascript-demos.json").write_text(json.dumps(catalog,indent=2)+"\n",encoding="utf-8")
     (args.out/".nojekyll").touch()
     licenses=args.out/"licenses";licenses.mkdir(exist_ok=True)

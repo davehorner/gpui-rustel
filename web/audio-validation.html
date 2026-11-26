@@ -3,7 +3,7 @@
 <h1>Rustel JavaScript + sample-bank validation</h1><p>Runs the shipped audio host, worker, WASM and worklet. Device output is muted; analysis happens before master gain.</p>
 <button id="run" disabled>Preparing…</button><pre id="log"></pre>
 <script type="module">
-import {LocalAudioHost} from './audio-host.js';
+import {LocalAudioHost} from './audio-host.js?v=__AUDIO_HOST_VERSION__';
 const log=document.querySelector('#log'),button=document.querySelector('#run');
 let snapshot,audio,status,lastStatus,peak=0,responses=[],errors=[];
 const write=value=>{log.textContent+=value+'\n';};

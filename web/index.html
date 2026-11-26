@@ -12,7 +12,7 @@ try {
   const params=new URLSearchParams(location.search);
   const local=!params.has('hub')&&params.get('audio')!=='native';
   wasm.run(local?'browser':(params.get('hub')||'ws://127.0.0.1:19613'));
-  if(local){const {LocalAudioHost}=await import('./audio-host.js');const audio=new LocalAudioHost(wasm);await audio.start();window.addEventListener('pagehide',()=>audio.close(),{once:true});}
+  if(local){boot.textContent='Preparing audio and instruments…';const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);await audio.start();window.addEventListener('pagehide',()=>audio.close(),{once:true});}
   boot.hidden=true;
 } catch(error){failure(error);}
 </script></body></html>
