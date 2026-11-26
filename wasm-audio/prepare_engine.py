@@ -4,14 +4,18 @@ import subprocess
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parent
 REVISION="79fd1fb3fd64c0a637f475ad24de675fd5b2ac59"
-CHECKOUT=ROOT/"target/rustel-browser-engine"
+CHECKOUT=ROOT/".build-sources/rustel-browser-engine"
 def prepare():
-    if not CHECKOUT.exists():
+    if not (CHECKOUT/".git").exists():
+        if CHECKOUT.exists() and any(CHECKOUT.iterdir()):
+            raise SystemExit(f"Engine source lacks its own Git metadata: {CHECKOUT}")
         CHECKOUT.parent.mkdir(parents=True,exist_ok=True)
         local=ROOT/"target/rustel-upstream"
         origin=str(local) if (local/".git").is_dir() else "https://github.com/tzfm/rustel.git"
         subprocess.run(["git","clone","--no-checkout",origin,str(CHECKOUT)],check=True)
         subprocess.run(["git","-C",str(CHECKOUT),"checkout","--detach",REVISION],check=True)
+    top=Path(subprocess.check_output(["git","-C",str(CHECKOUT),"rev-parse","--show-toplevel"],text=True).strip()).resolve()
+    if top!=CHECKOUT.resolve():raise SystemExit(f"Unexpected engine repository root: {top}")
     head=subprocess.check_output(["git","-C",str(CHECKOUT),"rev-parse","HEAD"],text=True).strip()
     if head!=REVISION:raise SystemExit(f"Unexpected browser engine revision: {head}")
     patch=HERE/"patches/browser-portability.patch"

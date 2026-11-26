@@ -29,7 +29,7 @@ A dedicated Web Worker owns the WASM engine and renders 4,096-frame stereo chunk
 
 ## Portability and source
 
-Rustel is pinned to [79fd1fb3fd64c0a637f475ad24de675fd5b2ac59](https://github.com/tzfm/rustel/tree/79fd1fb3fd64c0a637f475ad24de675fd5b2ac59). `prepare_engine.py` creates an isolated checkout in the workspace target directory and applies the tracked portability patch: browser clocks, portable QuickJS value checks, and literal preservation inside nested sample maps. It refuses an unrecognized dirty checkout. Native app dependencies are unchanged.
+Rustel is pinned to [79fd1fb3fd64c0a637f475ad24de675fd5b2ac59](https://github.com/tzfm/rustel/tree/79fd1fb3fd64c0a637f475ad24de675fd5b2ac59). `prepare_engine.py` creates an isolated checkout in `.build-sources/rustel-browser-engine`, outside the cached Cargo target directory and applies the tracked portability patch: browser clocks, portable QuickJS value checks, and literal preservation inside nested sample maps. It refuses an unrecognized dirty checkout. Native app dependencies are unchanged.
 
 `build.py` compiles QuickJS with its vendored WASM libc, supplies the host clock and a 64 MiB stack, and generates matching wasm-bindgen bindings. On Windows it needs Clang/llvm-ar on PATH and copies vendored headers to avoid canonical Windows include-path problems. The full web build uses pinned GPUI nightly-2026-10-31 and project-local wasm-bindgen 0.2.130. The downloadable bundle includes this wrapper, patches and build scripts; running its source build retrieves the exact upstream sources.
 

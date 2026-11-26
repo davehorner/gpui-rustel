@@ -26,7 +26,7 @@ def main():
         catalog.append({"name":file.name,"url":"./scores/"+file.name,"sha256":hashlib.sha256(content).hexdigest()})
     banks=args.out/"banks";banks.mkdir(exist_ok=True)
     for name in ["sample-banks.json","gm-fonts.json"]:
-        shutil.copyfile(ROOT/"target/rustel-browser-engine/crates/runtime/assets"/name,banks/name)
+        shutil.copyfile(ROOT/".build-sources/rustel-browser-engine/crates/runtime/assets"/name,banks/name)
     for file in (APP/"web").iterdir():
         if file.suffix in {".html",".js",".json"}:shutil.copyfile(file,args.out/file.name)
     (args.out/"javascript-demos.json").write_text(json.dumps(catalog,indent=2)+"\n",encoding="utf-8")

@@ -6,3 +6,5 @@
 /web/scores/
 /web/javascript-demos.json
 /web/banks/
+
+/.build-sources/

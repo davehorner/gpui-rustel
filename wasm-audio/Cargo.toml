@@ -22,7 +22,7 @@ codegen-units = 16
 strip = "debuginfo"
 
 [patch."https://github.com/tzfm/rustel"]
-rustel-engine = { path = "../target/rustel-browser-engine/crates/engine" }
+rustel-engine = { path = "../.build-sources/rustel-browser-engine/crates/engine" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
