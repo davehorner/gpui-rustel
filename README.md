@@ -13,7 +13,7 @@ python web/build.py
 python web/serve.py
 ```
 
-Open http://127.0.0.1:18766/ and click **Play**. The dropdown includes the same JavaScript `.strudel` sources as the native app: Arpeggio, Counterpoint, Many lanes, Bachata, Sample bank and Custom samples. QuickJS, scheduling and actual Rustel DSP run in WASM, with sample-bank fetching, browser decoding and General MIDI soundfont zones. No native engine process is required. See [audio architecture, limitations and tests](wasm-audio/README.md).
+Open http://127.0.0.1:18766/ and click **Play**. Bachata is selected by default. The dropdown includes the same JavaScript `.strudel` sources as the native app: Arpeggio, Counterpoint, Many lanes, Bachata, Sample bank and Custom samples. QuickJS, scheduling and actual Rustel DSP run in WASM, with sample-bank fetching, browser decoding and General MIDI soundfont zones. No native engine process is required. See [audio architecture, limitations and tests](wasm-audio/README.md).
 
 The browser visualizes note geometry with GPUI paths; the native app uses Nightshade's real 3D renderer. The complete GPUI Nightshade editor's WASM build is in the separate renderer repository. `?mini=1` starts with the earlier mini-notation synth demos. `?hub=wss%3A%2F%2FYOUR_SERVER` connects a native producer instead; HTTPS pages require a secure WebSocket.
 
