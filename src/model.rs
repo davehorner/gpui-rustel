@@ -24,6 +24,7 @@ pub struct Visual {
     pub mode: usize,
     pub rests: bool,
     pub orbit: bool,
+    pub fox_opacity: f32,
     pub gain: f32,
     pub zoom: f32,
     pub pan: [f32; 2],
@@ -39,6 +40,7 @@ impl Default for Visual {
             mode: 0,
             rests: false,
             orbit: false,
+            fox_opacity: 0.65,
             gain: 4.,
             zoom: 1.,
             pan: [0.; 2],
@@ -224,5 +226,80 @@ mod tests {
         let b = spiral(0.25, 36.);
         assert!(a.0.abs() < 0.0001 && a.1 < 0.);
         assert!(b.0 > 0. && b.1.abs() < 0.0001);
+    }
+}
+
+pub fn rgb_color([r, g, b]: [u8; 3]) -> u32 {
+    (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+}
+pub fn rgb_channels(color: u32) -> [f32; 3] {
+    [
+        ((color >> 16) & 255) as f32 / 255.,
+        ((color >> 8) & 255) as f32 / 255.,
+        (color & 255) as f32 / 255.,
+    ]
+}
+pub fn source_highlights(
+    s: &Snapshot,
+    cycle: f64,
+    lane: &str,
+) -> Vec<(std::ops::Range<usize>, gpui_kit::HighlightStyle)> {
+    let active = active_ranges(s, cycle, lane);
+    let mut edges = vec![0, s.source.len()];
+    for b in &s.bindings {
+        if b.from < b.to
+            && b.to <= s.source.len()
+            && s.source.is_char_boundary(b.from)
+            && s.source.is_char_boundary(b.to)
+        {
+            edges.extend([b.from, b.to]);
+        }
+    }
+    for r in &active {
+        edges.extend([r.start, r.end]);
+    }
+    edges.sort_unstable();
+    edges.dedup();
+    edges
+        .windows(2)
+        .filter_map(|w| {
+            let color = s
+                .bindings
+                .iter()
+                .find(|b| b.from <= w[0] && b.to >= w[1])
+                .map(|b| gpui_kit::rgb(rgb_color(b.color)).into());
+            let background_color = active
+                .iter()
+                .any(|r| r.start <= w[0] && r.end >= w[1])
+                .then(|| gpui_kit::rgb(0x23574f).into());
+            (color.is_some() || background_color.is_some()).then_some((
+                w[0]..w[1],
+                gpui_kit::HighlightStyle {
+                    color,
+                    background_color,
+                    ..Default::default()
+                },
+            ))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+pub fn test_event() -> music_link::Event {
+    music_link::Event {
+        id: 0,
+        lane: String::new(),
+        cycle: 0.,
+        duration: 0.,
+        original_pitch: None,
+        pitch: None,
+        sound: String::new(),
+        gain: 1.,
+        block_label: String::new(),
+        rest: false,
+        part: String::new(),
+        part_color: [0; 3],
+        context: vec![],
+        controls: Default::default(),
     }
 }

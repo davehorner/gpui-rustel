@@ -19,11 +19,25 @@ serde_json = "1"
 rustel-ui-adapter = { path = "upstream-adapter" }
 
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gpui-nightshade = { path = "vendor/gpui-nightshade/crates/gpui-nightshade" }
 gpui-nightshade-components = { path = "vendor/gpui-nightshade/crates/gpui-nightshade-components" }
 nightshade = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/nightshade" }
 nightshade-render = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/describe/nightshade-render" }
+nightshade-viewer-core = { path = "vendor/gpui-nightshade/crates/nightshade-viewer-core" }
+nightshade-gltf = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/domain/nightshade-gltf" }
+nightshade-prefab = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/domain/nightshade-prefab" }
+nightshade-camera-controller = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/domain/nightshade-camera-controller" }
+nightshade-animation = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/domain/nightshade-animation" }
+nightshade-scene = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/describe/nightshade-scene" }
+nightshade-text = { path = "vendor/gpui-nightshade/upstream/nightshade/crates/plugins/describe/nightshade-text" }
+oxc_allocator = "0.144.0"
+oxc_ast = "0.144.0"
+oxc_ast_visit = "0.144.0"
+oxc_parser = "0.144.0"
+oxc_span = "0.144.0"
+oxc_semantic = "0.144.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"
 tokio = { version = "1", features = ["rt", "time", "sync", "macros", "net"] }
 
@@ -40,6 +54,7 @@ exclude = ["upstream-adapter", "wasm-audio", "vendor/gpui-nightshade", "vendor/h
 resolver = "2"
 
 [patch.crates-io]
+wgpu = { path = "vendor/gpui-nightshade/upstream/wgpu-web-compat" }
 gpui-pre = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui" }
 gpui-pre-windows = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui-windows" }
 
@@ -48,3 +63,6 @@ inherits = "release"
 opt-level = 1
 codegen-units = 16
 strip = "debuginfo"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

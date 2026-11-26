@@ -39,12 +39,26 @@ impl State {
             self.feedback = "Command acknowledgement timed out".into();
         }
     }
-    pub fn receive_snapshot(&mut self, value: Snapshot) {
+    pub fn receive_snapshot(&mut self, mut value: Snapshot) {
         if !valid_snapshot(&value)
             || (!self.sessions.contains_key(&value.session) && self.sessions.len() >= 32)
         {
             return;
         }
+        if value.bindings.is_empty()
+            && let Some(previous) = self.sessions.get(&value.session)
+            && previous.value.generation == value.generation
+            && previous.value.source == value.source
+        {
+            value.bindings = previous.value.bindings.clone();
+            value.definitions = previous.value.definitions.clone();
+            for lane in &mut value.lanes {
+                if let Some(old) = previous.value.lanes.iter().find(|l| l.id == lane.id) {
+                    lane.parts = old.parts.clone();
+                }
+            }
+        }
+        crate::provenance::enrich(&mut value);
         self.sessions.insert(
             value.session.clone(),
             Received {

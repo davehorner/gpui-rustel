@@ -8,12 +8,10 @@ mod charts;
 mod model;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
-#[cfg(not(target_arch = "wasm32"))]
+mod provenance;
 mod stage;
 mod state;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::run as run_native;
 #[cfg(target_arch = "wasm32")]
 mod web;
-#[cfg(target_arch = "wasm32")]
-mod web_stage;

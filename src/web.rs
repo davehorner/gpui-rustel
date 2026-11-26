@@ -37,7 +37,14 @@ pub fn run(hub: Option<String>) -> Result<(), JsValue> {
         ]).expect("load bundled browser fonts");
         component::Theme::change(component::ThemeMode::Dark,None,cx);
         component::Theme::update(cx,|theme| {theme.font_family="Inter Variable".into();theme.mono_font_family="JetBrains Mono".into();});
-        gpui_kit::open_window(WindowOptions::default(),cx,move |window,cx|cx.new(|cx|MusicApp::new(bridge,settings,window,cx))).expect("open GPUI browser viewer");
+        gpui_kit::open_window(WindowOptions::default(),cx,move |window,cx| {
+            let shared=bridge.shared.clone();let visual=settings.clone();
+            let factory:gpui_nightshade_components::SceneFactory=Arc::new(move |b,w,h| {
+                Box::pin(crate::stage::Stage::open_async(shared.clone(),visual.clone(),b,w,h))
+            });
+            let viewport=cx.new(|cx|gpui_nightshade_components::NightshadeViewport::from_factory(gpui_nightshade_components::BackendPreference::Auto,factory,cx));
+            cx.new(|cx|MusicApp::new(bridge,settings,viewport,window,cx))
+        }).expect("open GPUI browser viewer");
         cx.activate(true);
     });
     APPLICATION.with(|a| *a.borrow_mut() = Some(handle));

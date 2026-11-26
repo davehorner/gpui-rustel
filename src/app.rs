@@ -5,13 +5,13 @@ use gpui_kit::*;
 use gpui_kit::{
     base::Disableable,
     component::{
+        Sizable,
         button::Button,
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
     },
     prelude::FluentBuilder,
 };
-#[cfg(not(target_arch = "wasm32"))]
 use gpui_nightshade_components::NightshadeViewport;
 use music_link::{Snapshot, TempoSettings, TransportCommand};
 use std::{sync::Arc, time::Duration};
@@ -24,10 +24,20 @@ enum Choice {
     Lane(String),
     Gain(f32),
 }
+#[derive(Clone, Copy)]
+enum CameraControl {
+    Home,
+    Top,
+    Front,
+    Side,
+    Orbit(f32, f32),
+    Pan(f32, f32),
+    Zoom(f32),
+    Fox,
+}
 pub(crate) struct MusicApp {
     pub(crate) bridge: Bridge,
     settings: Settings,
-    #[cfg(not(target_arch = "wasm32"))]
     viewport: Entity<NightshadeViewport>,
     focused: String,
     source_scroll: ScrollHandle,
@@ -37,6 +47,179 @@ pub(crate) struct MusicApp {
     _poll: Task<()>,
 }
 impl MusicApp {
+    fn camera_button(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        action: CameraControl,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        Button::new(id)
+            .label(label)
+            .xsmall()
+            .on_click(cx.listener(move |app, _, _, cx| app.adjust_camera(action, cx)))
+    }
+    fn adjust_camera(&mut self, action: CameraControl, cx: &mut Context<Self>) {
+        self.settings.lock().unwrap().orbit = false;
+        let frame = Frame::read(&self.bridge.shared, &self.settings);
+        let projected = frame.projected();
+        let fit = projected.as_ref().map_or(19.2, |(s, _)| {
+            ((s.lanes.len().saturating_sub(1) as f32 * 1.6) * 1.2 + 15.).max(19.2)
+        });
+        self.viewport.update(cx, |viewport, cx| {
+            let mut pose = viewport.camera_pose();
+            match action {
+                CameraControl::Home => {
+                    pose = gpui_nightshade::host::CameraPose {
+                        yaw: 0.6,
+                        pitch: 0.35,
+                        distance: 4.,
+                        target: [0.; 3],
+                    }
+                }
+                CameraControl::Top => {
+                    pose.yaw = 0.;
+                    pose.pitch = 1.08;
+                }
+                CameraControl::Front => {
+                    pose.yaw = 0.;
+                    pose.pitch = -0.25;
+                }
+                CameraControl::Side => {
+                    pose.yaw = std::f32::consts::FRAC_PI_2;
+                    pose.pitch = 0.;
+                }
+                CameraControl::Orbit(yaw, pitch) => {
+                    pose.yaw += yaw;
+                    pose.pitch = (pose.pitch + pitch).clamp(-0.25, 1.08);
+                }
+                CameraControl::Zoom(factor) => pose.distance *= factor,
+                CameraControl::Pan(x, y) => {
+                    let step = pose.distance * fit / 4. * 0.08;
+                    let pitch = (pose.pitch + 0.4).clamp(0.15, 1.4);
+                    pose.target[0] +=
+                        step * (x * pose.yaw.cos() - y * pose.yaw.sin() * pitch.sin());
+                    pose.target[1] += step * y * pitch.cos();
+                    pose.target[2] +=
+                        step * (-x * pose.yaw.sin() - y * pose.yaw.cos() * pitch.sin());
+                }
+                CameraControl::Fox => {
+                    if let Some((s, cycle)) = &projected {
+                        if let Some(target) = crate::stage::fox_focus_target(s, *cycle) {
+                            pose.target = target;
+                            pose.distance = 3.5 / fit * 4.;
+                        }
+                    }
+                }
+            }
+            viewport.set_camera_pose(pose, cx);
+        });
+        cx.notify();
+    }
+    fn camera_controls(&self, opacity: f32, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("stage-camera-controls")
+            .absolute()
+            .left(px(8.))
+            .top(px(8.))
+            .w(px(176.))
+            .p_2()
+            .gap_1()
+            .flex()
+            .flex_col()
+            .rounded_md()
+            .bg(rgba(0x101c2ae8))
+            .border_1()
+            .border_color(rgb(0x294054))
+            .text_xs()
+            .child("CAMERA")
+            .child(
+                div()
+                    .flex()
+                    .gap_1()
+                    .child(self.camera_button("camera-home", "Fit", CameraControl::Home, cx))
+                    .child(self.camera_button("camera-top", "Top", CameraControl::Top, cx))
+                    .child(self.camera_button("camera-front", "Front", CameraControl::Front, cx))
+                    .child(self.camera_button("camera-side", "Side", CameraControl::Side, cx)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_1()
+                    .child(self.camera_button(
+                        "camera-left",
+                        "Left",
+                        CameraControl::Orbit(-0.2, 0.),
+                        cx,
+                    ))
+                    .child(self.camera_button(
+                        "camera-right",
+                        "Right",
+                        CameraControl::Orbit(0.2, 0.),
+                        cx,
+                    ))
+                    .child(self.camera_button(
+                        "camera-up",
+                        "Up",
+                        CameraControl::Orbit(0., 0.15),
+                        cx,
+                    ))
+                    .child(self.camera_button(
+                        "camera-down",
+                        "Down",
+                        CameraControl::Orbit(0., -0.15),
+                        cx,
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_1()
+                    .child(self.camera_button(
+                        "camera-pan-left",
+                        "Pan <",
+                        CameraControl::Pan(-1., 0.),
+                        cx,
+                    ))
+                    .child(self.camera_button(
+                        "camera-pan-right",
+                        ">",
+                        CameraControl::Pan(1., 0.),
+                        cx,
+                    ))
+                    .child(self.camera_button("camera-pan-up", "^", CameraControl::Pan(0., 1.), cx))
+                    .child(self.camera_button(
+                        "camera-pan-down",
+                        "v",
+                        CameraControl::Pan(0., -1.),
+                        cx,
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_1()
+                    .child(self.camera_button("camera-zoom-in", "+", CameraControl::Zoom(0.7), cx))
+                    .child(self.camera_button("camera-zoom-out", "-", CameraControl::Zoom(1.4), cx))
+                    .child(self.camera_button("camera-focus-fox", "Fox", CameraControl::Fox, cx))
+                    .child(
+                        Button::new("fox-opacity")
+                            .xsmall()
+                            .label(format!("{}%", (opacity * 100.).round() as u32))
+                            .on_click(cx.listener(|app, _, _, cx| {
+                                let mut visual = app.settings.lock().unwrap();
+                                visual.fox_opacity = if visual.fox_opacity > 0.9 {
+                                    0.35
+                                } else if visual.fox_opacity < 0.5 {
+                                    0.65
+                                } else {
+                                    1.
+                                };
+                                cx.notify();
+                            })),
+                    ),
+            )
+    }
     fn snapshot(&self) -> Option<Arc<Snapshot>> {
         Frame::read(&self.bridge.shared, &self.settings)
             .snapshot
@@ -122,7 +305,7 @@ impl MusicApp {
     pub(crate) fn new(
         bridge: Bridge,
         settings: Settings,
-        #[cfg(not(target_arch = "wasm32"))] viewport: Entity<NightshadeViewport>,
+        viewport: Entity<NightshadeViewport>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -197,7 +380,6 @@ impl MusicApp {
         Self {
             bridge,
             settings,
-            #[cfg(not(target_arch = "wasm32"))]
             viewport,
             focused: String::new(),
             source_scroll: ScrollHandle::new(),
@@ -212,7 +394,6 @@ impl Render for MusicApp {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = Frame::read(&self.bridge.shared, &self.settings);
         let v = frame.visual.clone();
-        #[cfg(not(target_arch = "wasm32"))]
         self.viewport
             .update(cx, |viewport, cx| viewport.set_visible(v.mode == 0, cx));
         let s = frame.snapshot.as_ref().map(|s| s.value.clone());
@@ -228,7 +409,11 @@ impl Render for MusicApp {
         let capabilities = frame.capabilities.as_ref();
         let browser_javascript = capabilities.is_some_and(|c| c.backend == "browser-js-wasm");
         let browser_audio = capabilities.is_some_and(|c| c.backend.starts_with("browser-"));
-        let has_named_parts = capabilities.is_none_or(|c| c.named_parts);
+        let has_named_parts = capabilities.is_none_or(|c| c.named_parts)
+            || frame
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s.value.lanes.iter().any(|l| !l.parts.is_empty()));
         let can_pause = capabilities.is_none_or(|c| c.pause);
         let can_seek = capabilities.is_none_or(|c| c.seek);
         let native_restart = capabilities.is_some_and(|c| c.restart);
@@ -406,14 +591,7 @@ impl Render for MusicApp {
                 ),
             );
         let content = if v.mode == 0 {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                self.viewport.clone().into_any_element()
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                crate::web_stage::view(frame)
-            }
+            self.viewport.clone().into_any_element()
         } else {
             charts::view(frame)
         };
@@ -424,10 +602,13 @@ impl Render for MusicApp {
             .overflow_hidden()
             .relative()
             .child(content)
+            .when(v.mode == 0, |scene| {
+                scene.child(self.camera_controls(v.fox_opacity, cx))
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|app, event: &MouseDownEvent, _, _| {
-                    if cfg!(target_arch = "wasm32") || app.settings.lock().unwrap().mode != 0 {
+                    if app.settings.lock().unwrap().mode != 0 {
                         app.drag = Some(event.position);
                     }
                 }),
@@ -452,7 +633,7 @@ impl Render for MusicApp {
             }))
             .on_scroll(cx.listener(|app, event: &ScrollEvent, _, cx| {
                 let mut v = app.settings.lock().unwrap();
-                if cfg!(target_arch = "wasm32") || v.mode != 0 {
+                if v.mode != 0 {
                     v.zoom = (v.zoom
                         * (1. + f32::from(event.delta.pixel_delta(px(16.)).y) * 0.001))
                         .clamp(0.1, 20.);
@@ -585,11 +766,14 @@ impl Render for MusicApp {
                             })),
                     );
                     for part in &lane.parts {
-                        card = card.child(format!(
-                            "{}{}",
-                            if part.helper { "↳ helper " } else { "↳ " },
-                            part.name
-                        ));
+                        card =
+                            card.child(div().text_color(rgb(model::rgb_color(part.color))).child(
+                                format!(
+                                    "{}{}",
+                                    if part.helper { "↳ helper " } else { "↳ " },
+                                    part.name
+                                ),
+                            ));
                     }
                 }
                 if self.focused == lane.id {
@@ -598,19 +782,7 @@ impl Render for MusicApp {
                             ("lane-source", index),
                             s.source.clone(),
                         )
-                        .highlights(
-                            model::active_ranges(s, cycle, &lane.id)
-                                .into_iter()
-                                .map(|range| {
-                                    (
-                                        range,
-                                        HighlightStyle {
-                                            background_color: Some(rgb(0x23574f).into()),
-                                            ..Default::default()
-                                        },
-                                    )
-                                }),
-                        ),
+                        .highlights(model::source_highlights(s, cycle, &lane.id)),
                     );
                 }
                 source = source.child(card);
@@ -627,27 +799,21 @@ impl Render for MusicApp {
                 "SHARED DEFINITIONS"
             });
             for (i, d) in s.shared_definitions().into_iter().take(128).enumerate() {
-                source = source.child(gpui_kit::base::SelectableText::new(
-                    ("definition", i),
-                    format!(
-                        "{}{}",
-                        d.name,
-                        d.value.map_or(String::new(), |v| format!(" = {v:.3}"))
+                source = source.child(div().text_color(rgb(model::rgb_color(d.color))).child(
+                    gpui_kit::base::SelectableText::new(
+                        ("definition", i),
+                        format!(
+                            "{}{}",
+                            d.name,
+                            d.value.map_or(String::new(), |v| format!(" = {v:.3}"))
+                        ),
                     ),
                 ));
             }
             if self.focused.is_empty() {
                 source = source.child(
                     gpui_kit::base::SelectableText::new("score-source", s.source.clone())
-                        .highlights(model::active_ranges(s, cycle, "").into_iter().map(|range| {
-                            (
-                                range,
-                                HighlightStyle {
-                                    background_color: Some(rgb(0x23574f).into()),
-                                    ..Default::default()
-                                },
-                            )
-                        })),
+                        .highlights(model::source_highlights(s, cycle, "")),
                 );
             }
         } else {
