@@ -1,0 +1,63 @@
+name: Publish WASM to GitHub Pages
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Rust toolchains
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.100.0
+          rustup toolchain install nightly-2026-10-31 --profile minimal --target wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            wasm-audio -> wasm-audio/target
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.130
+      - name: Initialize pinned source dependencies
+        run: python scripts/prepare.py
+      - name: Enable Clang WASM compiler
+        shell: pwsh
+        run: |
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build WASM site
+        run: python web/build.py --out dist
+      - name: Build Node WASM bindings
+        run: python wasm-audio/build.py --target nodejs --out target/rustel-browser-audio-test
+      - name: Check JavaScript scores and installed PCM
+        run: node wasm-audio/test-javascript.cjs
+      - name: Check worklet streaming and mini fallback
+        run: node wasm-audio/test-wasm.cjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment

@@ -1,0 +1,128 @@
+{
+  "WASM Arpeggio": {
+    "bpm": 120,
+    "top": 4,
+    "bottom": 4,
+    "lanes": [
+      {
+        "label": "bass",
+        "notes": "c3 e3 g3 b3",
+        "sound": "sine",
+        "gain": 0.1,
+        "pan": -0.3
+      },
+      {
+        "label": "lead",
+        "notes": "c5 g4 e4 d4",
+        "sound": "triangle",
+        "gain": 0.07,
+        "pan": 0.3
+      }
+    ]
+  },
+  "WASM Counterpoint": {
+    "bpm": 108,
+    "top": 4,
+    "bottom": 4,
+    "lanes": [
+      {
+        "label": "bass",
+        "notes": "<c2 a1 f2 g2>",
+        "sound": "triangle",
+        "gain": 0.08,
+        "pan": 0
+      },
+      {
+        "label": "arps",
+        "notes": "c4 [e4 g4] b4 <d5 a4>",
+        "sound": "sine",
+        "gain": 0.04,
+        "pan": -0.4
+      },
+      {
+        "label": "harmony",
+        "notes": "<g3 e3 c4 d4>",
+        "sound": "triangle",
+        "gain": 0.04,
+        "pan": 0.4
+      },
+      {
+        "label": "ticks",
+        "notes": "c6*8",
+        "sound": "sine",
+        "gain": 0.008,
+        "pan": 0.1
+      }
+    ]
+  },
+  "WASM Nine lanes": {
+    "bpm": 116,
+    "top": 4,
+    "bottom": 4,
+    "lanes": [
+      {
+        "label": "arpeggio",
+        "notes": "c3 [e3 g3] b3 <d4 a3>",
+        "sound": "sine",
+        "gain": 0.04,
+        "pan": -0.5714285714285714
+      },
+      {
+        "label": "bass",
+        "notes": "<c2 a1 f2 g2>",
+        "sound": "triangle",
+        "gain": 0.04,
+        "pan": -0.42857142857142855
+      },
+      {
+        "label": "anchor",
+        "notes": "<c2@2 a1 f2 g2>",
+        "sound": "sine",
+        "gain": 0.04,
+        "pan": -0.2857142857142857
+      },
+      {
+        "label": "chords",
+        "notes": "<c4 a3 f4 g3>",
+        "sound": "triangle",
+        "gain": 0.018,
+        "pan": -0.14285714285714285
+      },
+      {
+        "label": "reply",
+        "notes": "c5 [e5 g5] ~ [b4 d5]",
+        "sound": "sine",
+        "gain": 0.018,
+        "pan": 0.0
+      },
+      {
+        "label": "polymeter",
+        "notes": "c5 e5 g5 d5 a5",
+        "sound": "triangle",
+        "gain": 0.018,
+        "pan": 0.14285714285714285
+      },
+      {
+        "label": "mask",
+        "notes": "c4 ~ [g4 g4] ~ e4 ~ ~ b4",
+        "sound": "sine",
+        "gain": 0.018,
+        "pan": 0.2857142857142857
+      },
+      {
+        "label": "ticks",
+        "notes": "c6*8",
+        "sound": "triangle",
+        "gain": 0.018,
+        "pan": 0.42857142857142855
+      },
+      {
+        "label": "counterpoint",
+        "notes": "c4 ~ e4 g4 ~ b4 a4 ~",
+        "sound": "sine",
+        "gain": 0.018,
+        "pan": 0.5714285714285714
+      }
+    ]
+  }
+}

@@ -1,0 +1,366 @@
+diff --git a/crates/core/Cargo.toml b/crates/core/Cargo.toml
+index 86153ff..e27bed8 100644
+--- a/crates/core/Cargo.toml
++++ b/crates/core/Cargo.toml
+@@ -19,6 +19,7 @@ tuning-list = ["dep:flate2"]
+ callback-census = []
+ 
+ [dependencies]
++web-time = "1"
+ rustel-fraction = { path = "../fraction" }
+ dragonbox_ecma = "0.1.12"
+ flate2 = { version = "1", optional = true }
+diff --git a/crates/core/src/gamepad.rs b/crates/core/src/gamepad.rs
+index 4714758..65b4a50 100644
+--- a/crates/core/src/gamepad.rs
++++ b/crates/core/src/gamepad.rs
+@@ -31,7 +31,7 @@ later version.
+ use std::collections::VecDeque;
+ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+ use std::sync::{Mutex, OnceLock};
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ /// How many pads a score can name: `gamepad(0)` to `gamepad(3)`.
+ pub const MAX_PADS: usize = 4;
+diff --git a/crates/core/src/host.rs b/crates/core/src/host.rs
+index 0751946..d2a7b65 100644
+--- a/crates/core/src/host.rs
++++ b/crates/core/src/host.rs
+@@ -353,7 +353,7 @@ pub(crate) fn with_callback_query_metrics_policy<R>(
+ 
+ struct CallbackQueryTimer {
+     metrics: Option<*mut CallbackQueryMetrics>,
+-    started: Option<std::time::Instant>,
++    started: Option<web_time::Instant>,
+     previous_depth: u32,
+ }
+ 
+@@ -402,7 +402,7 @@ impl CallbackQueryTimer {
+         }
+         Self {
+             metrics: Some(metrics),
+-            started: sampled.then(std::time::Instant::now),
++            started: sampled.then(web_time::Instant::now),
+             previous_depth,
+         }
+     }
+@@ -2092,7 +2092,7 @@ pub(crate) struct QueryThread {
+     /// hap budget). Without this deadline a single save could occupy the
+     /// producer for minutes: the live set goes silent while the process
+     /// stays alive.
+-    deadline: std::cell::Cell<Option<std::time::Instant>>,
++    deadline: std::cell::Cell<Option<web_time::Instant>>,
+     /// The time a query is allowed, when its deadline is not made yet:
+     /// see [`with_query_budget`].
+     budget: std::cell::Cell<Option<std::time::Duration>>,
+@@ -2197,7 +2197,7 @@ impl QueryThread {
+         if deadline.is_none() && budget.is_none() {
+             return false;
+         }
+-        let now = std::time::Instant::now();
++        let now = web_time::Instant::now();
+         let Some(deadline) = deadline else {
+             self.deadline.set(budget.map(|budget| now + budget));
+             return false;
+@@ -2929,15 +2929,15 @@ pub fn with_cancellation<R>(flag: &std::sync::atomic::AtomicBool, f: impl FnOnce
+ }
+ 
+ /// Run `f` with a native query deadline installed (restored afterwards).
+-pub fn with_query_deadline<T>(deadline: std::time::Instant, f: impl FnOnce() -> T) -> T {
+-    with_query_deadline_from(std::time::Instant::now(), deadline, f)
++pub fn with_query_deadline<T>(deadline: web_time::Instant, f: impl FnOnce() -> T) -> T {
++    with_query_deadline_from(web_time::Instant::now(), deadline, f)
+ }
+ 
+ /// [`with_query_deadline`] for a caller that made `deadline` from a read of
+ /// the clock at `now`, so the clock is read one time.
+ pub fn with_query_deadline_from<T>(
+-    now: std::time::Instant,
+-    deadline: std::time::Instant,
++    now: web_time::Instant,
++    deadline: web_time::Instant,
+     f: impl FnOnce() -> T,
+ ) -> T {
+     let _around = QUERY_THREAD.with(|thread| {
+@@ -2982,7 +2982,7 @@ pub fn with_query_deadline_from<T>(
+ /// Puts back the deadline, the budget and the verdict of the scope around
+ /// a deadline or a budget, also on unwind.
+ pub(crate) struct DeadlineAround {
+-    deadline: Option<std::time::Instant>,
++    deadline: Option<web_time::Instant>,
+     budget: Option<std::time::Duration>,
+     millis: u64,
+     expired: bool,
+@@ -3029,7 +3029,7 @@ pub fn with_query_budget<T>(budget: std::time::Duration, f: impl FnOnce() -> T)
+     match around {
+         Some(_around) => f(),
+         None => {
+-            let now = std::time::Instant::now();
++            let now = web_time::Instant::now();
+             with_query_deadline_from(now, now + budget, f)
+         }
+     }
+diff --git a/crates/core/src/midi_in.rs b/crates/core/src/midi_in.rs
+index 151a4e5..1fa2352 100644
+--- a/crates/core/src/midi_in.rs
++++ b/crates/core/src/midi_in.rs
+@@ -82,9 +82,9 @@ pub const KEY_STALE_NANOS: u64 = 2_000_000_000;
+ /// `Instant`s taken in different modules differ by the time between their
+ /// creation, and that offset would make the staleness check wrong.
+ pub fn now_nanos() -> u64 {
+-    static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
++    static EPOCH: std::sync::OnceLock<web_time::Instant> = std::sync::OnceLock::new();
+     EPOCH
+-        .get_or_init(std::time::Instant::now)
++        .get_or_init(web_time::Instant::now)
+         .elapsed()
+         .as_nanos() as u64
+ }
+diff --git a/crates/core/src/tonaljs.rs b/crates/core/src/tonaljs.rs
+index 0ab7621..4cdcf2d 100644
+--- a/crates/core/src/tonaljs.rs
++++ b/crates/core/src/tonaljs.rs
+@@ -1037,7 +1037,7 @@ mod scale_offset_scan_tests {
+     /// for a minute while the process reported healthy.
+     #[test]
+     fn a_huge_offset_returns_promptly() {
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         let far = scale_offset("C:major", 1e9, "c3").expect("a large offset resolves");
+         assert!(
+             started.elapsed() < std::time::Duration::from_secs(2),
+diff --git a/crates/jsruntime/Cargo.toml b/crates/jsruntime/Cargo.toml
+index a853485..88f0480 100644
+--- a/crates/jsruntime/Cargo.toml
++++ b/crates/jsruntime/Cargo.toml
+@@ -27,6 +27,7 @@ extensions = ["dep:rustel-ext"]
+ hydra = []
+ 
+ [dependencies]
++web-time = "1"
+ rustel-kabel = { path = "../kabel" }
+ rustel-core = { path = "../core" }
+ rustel-ext = { path = "../ext", optional = true }
+diff --git a/crates/jsruntime/src/install/repl/common.rs b/crates/jsruntime/src/install/repl/common.rs
+index 95723ce..7a0d859 100644
+--- a/crates/jsruntime/src/install/repl/common.rs
++++ b/crates/jsruntime/src/install/repl/common.rs
+@@ -35,7 +35,7 @@ fn value_from_raw<'js>(
+     ctx: &Ctx<'js>,
+     value: rquickjs::qjs::JSValue,
+ ) -> rquickjs::Result<rquickjs::Value<'js>> {
+-    if value.tag == i64::from(rquickjs::qjs::JS_TAG_EXCEPTION) {
++    if unsafe { rquickjs::qjs::JS_IsException(value) } {
+         Err(rquickjs::Error::Exception)
+     } else {
+         Ok(unsafe { rquickjs::Value::from_raw(ctx.clone(), value) })
+diff --git a/crates/jsruntime/src/install/repl/lanes.rs b/crates/jsruntime/src/install/repl/lanes.rs
+index d709af5..d672add 100644
+--- a/crates/jsruntime/src/install/repl/lanes.rs
++++ b/crates/jsruntime/src/install/repl/lanes.rs
+@@ -242,9 +242,9 @@ fn finish<'js>(
+     ctx: Ctx<'js>,
+     returned: rquickjs::Value<'js>,
+     logs: &RefCell<Vec<String>>,
+-    deadline: &Cell<Option<std::time::Instant>>,
++    deadline: &Cell<Option<web_time::Instant>>,
+ ) -> rquickjs::Result<rquickjs::Value<'js>> {
+-    let started = std::time::Instant::now();
++    let started = web_time::Instant::now();
+     let state = state(&ctx)?;
+     let patterns: rquickjs::Object = state.get(PATTERNS)?;
+     let tags: rquickjs::Object = state.get(TAGS)?;
+@@ -337,7 +337,7 @@ fn finish<'js>(
+     let took = started.elapsed();
+     let fits = deadline
+         .get()
+-        .is_none_or(|at| at.saturating_duration_since(std::time::Instant::now()) > took * 2);
++        .is_none_or(|at| at.saturating_duration_since(web_time::Instant::now()) > took * 2);
+     let shadow = if fits {
+         shadow_of(&ctx, &state, shadow, transform.as_ref(), scope, logs)?
+     } else {
+diff --git a/crates/jsruntime/src/runtime/api.rs b/crates/jsruntime/src/runtime/api.rs
+index e176110..9904879 100644
+--- a/crates/jsruntime/src/runtime/api.rs
++++ b/crates/jsruntime/src/runtime/api.rs
+@@ -490,8 +490,8 @@ impl JsRuntime {
+     /// already happened stays. Rolling it back would change the language contract.
+     pub fn with_deadline<R>(&self, budget: std::time::Duration, f: impl FnOnce() -> R) -> R {
+         struct Guard(
+-            std::rc::Rc<Cell<Option<std::time::Instant>>>,
+-            Option<std::time::Instant>,
++            std::rc::Rc<Cell<Option<web_time::Instant>>>,
++            Option<web_time::Instant>,
+         );
+         impl Drop for Guard {
+             fn drop(&mut self) {
+@@ -506,7 +506,7 @@ impl JsRuntime {
+         // cycle from a JS callback; with a fresh budget each time the
+         // a fresh budget each time would multiply the allowed work. Inheriting
+         // the tighter deadline keeps one save bounded by one budget.
+-        let now = std::time::Instant::now();
++        let now = web_time::Instant::now();
+         let deadline = match prev {
+             Some(outer) => (now + budget).min(outer),
+             None => now + budget,
+@@ -550,7 +550,7 @@ impl JsRuntime {
+         if bridge
+             .deadline
+             .get()
+-            .is_some_and(|at| std::time::Instant::now() >= at)
++            .is_some_and(|at| web_time::Instant::now() >= at)
+         {
+             bridge.interrupted.set(true);
+             return true;
+diff --git a/crates/jsruntime/src/runtime/evaluation.rs b/crates/jsruntime/src/runtime/evaluation.rs
+index 864e6a6..b0feb3b 100644
+--- a/crates/jsruntime/src/runtime/evaluation.rs
++++ b/crates/jsruntime/src/runtime/evaluation.rs
+@@ -256,7 +256,7 @@ impl JsRuntime {
+                                 || bridge
+                                     .deadline
+                                     .get()
+-                                    .is_some_and(|at| std::time::Instant::now() >= at)
++                                    .is_some_and(|at| web_time::Instant::now() >= at)
+                             {
+                                 bridge.interrupted.set(true);
+                                 return Some(deadline_error());
+diff --git a/crates/jsruntime/src/runtime/mod.rs b/crates/jsruntime/src/runtime/mod.rs
+index fc417e6..254a7e6 100644
+--- a/crates/jsruntime/src/runtime/mod.rs
++++ b/crates/jsruntime/src/runtime/mod.rs
+@@ -296,7 +296,7 @@ pub(crate) struct JsBridge {
+     pub(super) heap: Rc<alloc::HeapBudget>,
+     /// Shared with the interrupt handler. `Some(deadline)` while an evaluation
+     /// is running under a CPU budget; `None` when unbounded.
+-    pub(super) deadline: Rc<Cell<Option<std::time::Instant>>>,
++    pub(super) deadline: Rc<Cell<Option<web_time::Instant>>>,
+     /// Set once the deadline fires, so the caller can tell an interrupted
+     /// evaluation from a normal error.
+     pub(super) interrupted: Rc<Cell<bool>>,
+diff --git a/crates/jsruntime/src/runtime/realm.rs b/crates/jsruntime/src/runtime/realm.rs
+index 12adbed..aec983b 100644
+--- a/crates/jsruntime/src/runtime/realm.rs
++++ b/crates/jsruntime/src/runtime/realm.rs
+@@ -129,7 +129,7 @@ impl Realm {
+                     return true;
+                 }
+                 match d.get() {
+-                    Some(t) if std::time::Instant::now() >= t => {
++                    Some(t) if web_time::Instant::now() >= t => {
+                         i.set(true);
+                         true // interrupt
+                     }
+diff --git a/crates/jsruntime/src/surface/setup/pattern_surface.rs b/crates/jsruntime/src/surface/setup/pattern_surface.rs
+index cc93698..1617ed2 100644
+--- a/crates/jsruntime/src/surface/setup/pattern_surface.rs
++++ b/crates/jsruntime/src/surface/setup/pattern_surface.rs
+@@ -14,7 +14,7 @@ unsafe extern "C" fn construct_pattern(
+     argc: rquickjs::qjs::c_int,
+     argv: *mut rquickjs::qjs::JSValue,
+ ) -> rquickjs::qjs::JSValue {
+-    if new_target.tag == i64::from(rquickjs::qjs::JS_TAG_UNDEFINED) {
++    if unsafe { rquickjs::qjs::JS_IsUndefined(new_target) } {
+         return unsafe {
+             rquickjs::qjs::JS_ThrowTypeError(
+                 raw_ctx,
+@@ -25,13 +25,10 @@ unsafe extern "C" fn construct_pattern(
+     let implementation = unsafe {
+         rquickjs::qjs::JS_GetPropertyStr(raw_ctx, new_target, CONSTRUCT_IMPL_C.as_ptr().cast())
+     };
+-    if implementation.tag == i64::from(rquickjs::qjs::JS_TAG_EXCEPTION) {
++    if unsafe { rquickjs::qjs::JS_IsException(implementation) } {
+         return implementation;
+     }
+-    let undefined = rquickjs::qjs::JSValue {
+-        u: rquickjs::qjs::JSValueUnion { int32: 0 },
+-        tag: i64::from(rquickjs::qjs::JS_TAG_UNDEFINED),
+-    };
++    let undefined = rquickjs::qjs::JS_UNDEFINED;
+     let result = unsafe { rquickjs::qjs::JS_Call(raw_ctx, implementation, undefined, argc, argv) };
+     unsafe { rquickjs::qjs::JS_FreeValue(raw_ctx, implementation) };
+     result
+diff --git a/crates/scheduler/Cargo.toml b/crates/scheduler/Cargo.toml
+index e6312a9..338978f 100644
+--- a/crates/scheduler/Cargo.toml
++++ b/crates/scheduler/Cargo.toml
+@@ -11,6 +11,7 @@ description = "Generation-aware pattern event scheduling"
+ callback-census = ["rustel-core/callback-census"]
+ 
+ [dependencies]
++web-time = "1"
+ rustel-core = { path = "../core", default-features = false }
+ rustel-fraction = { path = "../fraction" }
+ 
+diff --git a/crates/scheduler/src/lib.rs b/crates/scheduler/src/lib.rs
+index d85a150..1394425 100644
+--- a/crates/scheduler/src/lib.rs
++++ b/crates/scheduler/src/lib.rs
+@@ -2199,7 +2199,7 @@ impl Scheduler {
+         // no onsets, while resource refusals remain distinct from silence so
+         // callers can retry or report an incomplete render.
+         let profiling = profile.is_some();
+-        let query_started = profiling.then(std::time::Instant::now);
++        let query_started = profiling.then(web_time::Instant::now);
+         let mut callback = rustel_core::CallbackQueryMetrics::default();
+         let query = if profiling {
+             rustel_core::with_callback_query_metrics(&mut callback, || {
+@@ -2262,7 +2262,7 @@ impl Scheduler {
+             profile.queried_haps = u64::try_from(haps.len()).unwrap_or(u64::MAX);
+         }
+ 
+-        let acceptance_started = profiling.then(std::time::Instant::now);
++        let acceptance_started = profiling.then(web_time::Instant::now);
+         let mut queue_full = false;
+         // Earliest onset the cap left unqueued; the cursor stops there.
+         let mut unprocessed_begin: Option<Fraction> = None;
+diff --git a/crates/transpiler/Cargo.toml b/crates/transpiler/Cargo.toml
+index bc01d71..b3d6b1e 100644
+--- a/crates/transpiler/Cargo.toml
++++ b/crates/transpiler/Cargo.toml
+@@ -8,6 +8,7 @@ publish = false
+ description = "Score JavaScript syntax rewriting"
+ 
+ [dependencies]
++web-time = "1"
+ oxc_allocator = "0.144.0"
+ oxc_ast = "0.144.0"
+ oxc_ast_visit = "0.144.0"
+diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
+index ccbf7d9..a572cac 100644
+--- a/crates/transpiler/src/lib.rs
++++ b/crates/transpiler/src/lib.rs
+@@ -383,7 +383,7 @@ impl OrdinaryStringLiteralRanges {
+     }
+ 
+     fn contains(&self, start: usize) -> bool {
+-        self.0.binary_search_by_key(&start, |range| range.0).is_ok()
++        self.0.iter().any(|&(begin, end)| begin <= start && start < end)
+     }
+ }
+ 
+@@ -468,6 +468,14 @@ impl HydraImageStringCollector {
+                 _ => {}
+             }
+         }
++        // A samples() map contains URL data, including nested arrays and note keys.
++        // Keep its complete literal intact instead of compiling URLs as mini patterns.
++        if name == "samples" {
++            if let Some(argument @ (Argument::ObjectExpression(_) | Argument::ArrayExpression(_))) = arguments.first() {
++                let span = argument.span();
++                self.ranges.push((span.start as usize, span.end as usize));
++            }
++        }
+         // Plugin option keys name parameters. A preset value names a file.
+         if matches!(name, "vst" | "vsti")
+             && let Some(Argument::ObjectExpression(options)) = arguments.get(1)
+@@ -5222,7 +5230,7 @@ mod tests {
+ 
+         // The deepest the size limit admits is refused without being printed.
+         let deepest = format!("{}x", "if(1)".repeat(65_530));
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         let output = transpile(&deepest, &TranspileOptions::default());
+         let elapsed = started.elapsed();
+         assert!(

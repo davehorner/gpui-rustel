@@ -1,0 +1,3 @@
+[submodule "vendor/gpui-nightshade"]
+	path = vendor/gpui-nightshade
+	url = https://github.com/davehorner/gpui-nightshade.git

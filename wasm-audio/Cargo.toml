@@ -1,0 +1,28 @@
+[package]
+name = "rustel-browser-audio"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+rustel-engine = { git = "https://github.com/tzfm/rustel", rev = "79fd1fb3fd64c0a637f475ad24de675fd5b2ac59", default-features = false, features = ["javascript"] }
+wasm-bindgen = "=0.2.130"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+codegen-units = 16
+strip = "debuginfo"
+
+[patch."https://github.com/tzfm/rustel"]
+rustel-engine = { path = "../target/rustel-browser-engine/crates/engine" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"

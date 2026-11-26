@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(lane_ipc_reader_check LANGUAGES CXX)
+get_filename_component(WORKSPACE "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+add_executable(lane-ipc-reader ../ipc_reader.cpp)
+target_compile_features(lane-ipc-reader PRIVATE cxx_std_17)
+target_include_directories(lane-ipc-reader PRIVATE "${WORKSPACE}/vendor/BespokeSynth/files/Source")

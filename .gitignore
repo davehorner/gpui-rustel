@@ -1,0 +1,8 @@
+**/target/
+**/__pycache__/
+*.log
+/vendor/gpui-nightshade/target/
+
+/web/scores/
+/web/javascript-demos.json
+/web/banks/

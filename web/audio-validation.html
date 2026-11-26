@@ -1,0 +1,39 @@
+<!doctype html><meta charset="utf-8"><title>Rustel browser audio validation</title>
+<style>body{background:#151924;color:#dce6ef;font:16px monospace;margin:30px}button{font:inherit;padding:12px}pre{white-space:pre-wrap}</style>
+<h1>Rustel JavaScript + sample-bank validation</h1><p>Runs the shipped audio host, worker, WASM and worklet. Device output is muted; analysis happens before master gain.</p>
+<button id="run" disabled>Preparing…</button><pre id="log"></pre>
+<script type="module">
+import {LocalAudioHost} from './audio-host.js';
+const log=document.querySelector('#log'),button=document.querySelector('#run');
+let snapshot,audio,status,lastStatus,peak=0,responses=[],errors=[];
+const write=value=>{log.textContent+=value+'\n';};
+const viewer={local_message(topic,json){
+ if(topic==='music/snapshot')snapshot=JSON.parse(json);
+ if(topic==='music/audio'){audio=JSON.parse(json);for(const value of audio.scope){if(!Number.isFinite(value))throw Error('Nonfinite audio');peak=Math.max(peak,Math.abs(value));}}
+ if(topic==='music/response')responses.push(JSON.parse(json));
+ if(topic==='music/status'){status=json;if(status!==lastStatus){write(status);lastStatus=status;}if(status.includes('error:'))errors.push(status);}
+}};
+const host=new LocalAudioHost(viewer);host.volume=0;
+window.addEventListener('error',e=>write('FAIL: '+e.message));
+window.addEventListener('unhandledrejection',e=>write('FAIL: '+e.reason));
+try{await host.start();button.disabled=false;button.textContent='Run validation';write('Ready: '+snapshot.demos.join(', '));}catch(error){write('FAIL: '+error);}
+button.onclick=async()=>{
+ button.disabled=true;const reports=[];
+ const command=async value=>{const request=crypto.randomUUID();await host.command({session:host.session,generation:host.generation,request,...value});if(!responses.some(r=>r.request===request&&r.accepted))throw Error('Missing acknowledgement');};
+ try{
+  await command({transport:{action:'play'}});
+  for(const demo of snapshot.demos.filter(name=>name.endsWith('.strudel'))){
+   await command({demo});peak=0;audio=null;errors=[];await new Promise(resolve=>setTimeout(resolve,3500));
+   const response=await fetch(host.demos[demo].url),source=await response.text();
+   if(snapshot.source!==source)throw Error('Source differs: '+demo);
+   if(!(host.frame>48000&&peak>0.00001&&audio&&snapshot.events.length))throw Error('No played audio/events: '+demo+' '+JSON.stringify({frame:host.frame,peak,events:snapshot.events.length}));
+   if(errors.length)throw Error(errors.join('; '));
+   const report={demo,frames:host.frame,peak,events:snapshot.events.length,lanes:snapshot.lanes.length,sampleBanks:host.metadata?.sample_banks,underruns:host.underruns};reports.push(report);write('PASS '+JSON.stringify(report));
+  }
+  await command({transport:{action:'pause'}});const frozen=host.frame;await new Promise(r=>setTimeout(r,300));if(host.frame!==frozen)throw Error('Pause advanced frame');
+  await command({transport:{action:'stop'}});if(host.frame!==0)throw Error('Stop did not reset');
+  write('PASS: all native demos, exact sources, finite nonzero played PCM, acknowledgements, pause and stop.');
+ }catch(error){write('FAIL: '+error);}
+ finally{host.close();button.textContent='Validation finished';}
+};
+</script>

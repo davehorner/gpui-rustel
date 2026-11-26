@@ -1,0 +1,8 @@
+// Same HTTP sample declarations on the native and browser hosts.
+setcpm(104/4)
+samples({
+  custom_keys: ['casio/high.wav', 'casio/low.wav'],
+  custom_noise: ['casio/noise.wav']
+}, 'https://strudel.b-cdn.net/Dirt-Samples/')
+keys: note("c3 e3 g3 b3").s("custom_keys:<0 1>").gain(0.1).room(0.12)
+noise: s("custom_noise ~ ~ ~").gain(0.025)

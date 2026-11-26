@@ -1,0 +1,23 @@
+[package]
+name = "rustel-ui-adapter"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[features]
+hub = ["dep:hearsay", "dep:tokio", "hearsay/websockets"]
+
+[dependencies]
+music-link = { path = "../vendor/music-link" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hearsay = { path = "../vendor/hearsay", optional = true }
+tokio = { version = "1", features = ["rt", "time", "macros", "signal"], optional = true }
+
+[[bin]]
+name = "rustel-ui-link"
+path = "src/main.rs"
+required-features = ["hub"]
