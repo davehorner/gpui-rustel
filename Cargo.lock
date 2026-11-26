@@ -3126,6 +3126,7 @@ dependencies = [
  "gpui-pre-windows",
  "image",
  "js-sys",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "windows 0.62.2",
 ]

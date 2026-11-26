@@ -3,21 +3,14 @@
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#08111c;color:#dce9f7;font:16px system-ui}#boot{position:fixed;inset:0;display:grid;place-content:center;gap:1rem;z-index:9999;background:#08111c;padding:2rem;white-space:pre-wrap}#boot[hidden]{display:none}a{color:#1ff2d1}</style></head>
 <body><div id="boot" role="status">Loading GPUI Rustel…<noscript>JavaScript is required to start this WebAssembly viewer.</noscript></div>
 <script type="module">
-const boot=document.querySelector('#boot');
-let panicMessage=null;
-window.addEventListener('rustel-panic',event=>{panicMessage=String(event.detail);failure(panicMessage);});
-function failure(error){boot.hidden=false;boot.textContent=`GPUI Rustel could not start.\n${panicMessage||error?.stack||error}\n\nServe this folder over localhost or HTTPS and check browser graphics support.`;console.error(error);}
-// A cached page's worker/audio graph was closed on pagehide; create fresh GPU/audio owners.
-window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
-window.addEventListener('error',event=>failure(event.error||event.message));
-window.addEventListener('unhandledrejection',event=>failure(event.reason));
+import {startup} from './startup.js?v=__VIEWER_VERSION__';
+const diag=startup(document.querySelector('#boot'),'GPUI Rustel','__VIEWER_VERSION__');
 try {
-  if(!navigator.gpu)throw Error('WebGPU is unavailable in this browser/device.');
+  await diag.check();diag.phase('Downloading and compiling the GPUI/Rustel WASM module');
   const wasm=await import('./pkg/__VIEWER_VERSION__/gpui_rustel.js');await wasm.default();
-  const params=new URLSearchParams(location.search);
-  const local=!params.has('hub')&&params.get('audio')!=='native';
-  wasm.run(local?'browser':(params.get('hub')||'ws://127.0.0.1:19613'));
-  if(local){boot.textContent='Preparing audio and instruments…';const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);await audio.start();window.addEventListener('pagehide',()=>audio.close(),{once:true});}
-  boot.hidden=true;
-} catch(error){failure(error);}
+  const params=new URLSearchParams(location.search),local=!params.has('hub')&&params.get('audio')!=='native';
+  diag.phase('Starting the GPUI interface');wasm.run(local?'browser':(params.get('hub')||'ws://127.0.0.1:19613'));
+  if(local){diag.phase('Preparing audio and instruments');const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);await audio.start();window.addEventListener('pagehide',()=>audio.close(),{once:true});}
+  diag.appReady();
+}catch(error){diag.fail(error);}
 </script></body></html>

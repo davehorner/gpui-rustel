@@ -67,3 +67,9 @@ startup panics preserve the original Rust message in the visible error panel.
 The browser material texture arrays are bounded to 256-pixel layers and 64 layers
 per color space (about 43 MiB total with mipmaps), replacing the desktop-sized
 2.7 GiB reservation. Native material texture sizing is unchanged.
+
+For startup failures, open `?diagnostics=1` and use **Copy diagnostics** before
+starting the app. This lightweight screen reports GPU capabilities and the last
+startup stage without loading either WASM engine. It does not transmit reports.
+On narrow screens the stage uses the full width; **Show code** opens the source
+panel below it. A desktop test at phone dimensions does not validate a phone GPU.

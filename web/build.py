@@ -17,7 +17,7 @@ def main():
     if not tool or subprocess.check_output([tool,"--version"],text=True).strip()!=f"wasm-bindgen {version}":
         raise SystemExit(f"Install the matching project tool: cargo install wasm-bindgen-cli --version {version} --locked --root target/wasm-tools")
     viewer_wasm=ROOT/"target/wasm32-unknown-unknown/web/gpui_rustel_app.wasm"
-    viewer_version=hashlib.sha256(viewer_wasm.read_bytes()).hexdigest()[:16]
+    viewer_version=hashlib.sha256(viewer_wasm.read_bytes()+(APP/"web/startup.js").read_bytes()).hexdigest()[:16]
     subprocess.run([tool,str(viewer_wasm),"--target","web","--out-dir",str(args.out/"pkg"/viewer_version),"--no-typescript","--out-name","gpui_rustel"],check=True)
     audio=APP/"wasm-audio"
     subprocess.run([sys.executable,str(audio/"build.py"),"--out",str(args.out/"audio")],check=True,cwd=ROOT)

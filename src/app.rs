@@ -40,6 +40,7 @@ pub(crate) struct MusicApp {
     settings: Settings,
     viewport: Entity<NightshadeViewport>,
     focused: String,
+    source_open: bool,
     source_scroll: ScrollHandle,
     drag: Option<Point<Pixels>>,
     tempo: Entity<InputState>,
@@ -382,6 +383,7 @@ impl MusicApp {
             settings,
             viewport,
             focused: String::new(),
+            source_open: false,
             source_scroll: ScrollHandle::new(),
             drag: None,
             tempo,
@@ -391,7 +393,8 @@ impl MusicApp {
     }
 }
 impl Render for MusicApp {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let narrow = f32::from(window.viewport_size().width) < 760.;
         let frame = Frame::read(&self.bridge.shared, &self.settings);
         let v = frame.visual.clone();
         self.viewport
@@ -825,6 +828,7 @@ impl Render for MusicApp {
         }
         let clock = div()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap_3()
             .p_3()
@@ -855,8 +859,31 @@ impl Render for MusicApp {
                     .child("GPUI RUSTEL · LIVE PATTERN FIELD")
                     .child(format!("{status} · {feedback}")),
             )
-            .child(toolbar)
-            .child(div().flex().flex_1().min_h_0().child(scene).child(source))
+            .child(toolbar.when(narrow, |toolbar| {
+                toolbar.child(
+                    Button::new("mobile-source")
+                        .label(if self.source_open {
+                            "Hide code"
+                        } else {
+                            "Show code"
+                        })
+                        .on_click(cx.listener(|app, _, _, cx| {
+                            app.source_open = !app.source_open;
+                            cx.notify();
+                        })),
+                )
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .when(narrow, |d| d.flex_col())
+                    .child(scene)
+                    .when(!narrow || self.source_open, |d| {
+                        d.child(source.when(narrow, |s| s.w_full().h(px(220.))))
+                    }),
+            )
             .child(clock)
             .when_some(s.as_ref().and_then(|s| s.file_error.clone()), |d, error| {
                 d.child(error)

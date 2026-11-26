@@ -38,7 +38,9 @@ jobs:
         run: |
           "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Check default score and browser audio startup
-        run: node web/test-audio-host.mjs
+        run: |
+          node web/test-audio-host.mjs
+          node web/test-startup.mjs
       - name: Build WASM site
         run: python web/build.py --out dist
       - name: Build Node WASM bindings
