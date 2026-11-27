@@ -54,6 +54,7 @@ exclude = ["upstream-adapter", "wasm-audio", "vendor/gpui-nightshade", "vendor/h
 resolver = "2"
 
 [patch.crates-io]
+gpui-pre-wgpu = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui-wgpu" }
 wgpu = { path = "vendor/gpui-nightshade/upstream/wgpu-web-compat" }
 gpui-pre = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui" }
 gpui-pre-windows = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui-windows" }
