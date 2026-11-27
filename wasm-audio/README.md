@@ -19,7 +19,7 @@ QuickJS executes score functions, callbacks, variables, `stack`, arrangement, tr
 
 A worker fetches encoded samples; the browser decodes compressed files through `decodeAudioData`. Raw WebAudioFont PCM is converted directly. The decoded PCM is installed in Rustel's real sample voices. Fetches require CORS permission from the source server. Manifests are hash-verified against the pinned native catalog. No downloaded soundfont JavaScript is evaluated: its zone data is parsed.
 
-The host probes the first 64 cycles before replacement to preload required sounds and variants. Later, newly encountered assets load asynchronously; their first triggering onset may be silent. `preload()` can request them beforehand. Encoded/decoded individual samples are limited to 32 MiB, the decoded host cache to 128 MiB, installed samples per engine to 256 MiB, and score loading to 60 seconds. Initial score evaluation and scheduled queries have interrupt deadlines. Score source is limited to 512 KiB and 64 lanes.
+The host probes the first 64 cycles before replacement to preload required sounds and variants. Later, newly encountered assets load asynchronously; their first triggering onset may be silent. `preload()` can request them beforehand. Encoded/decoded individual samples are limited to 32 MiB, the decoded host cache to 128 MiB, installed samples per engine to 256 MiB, and score loading to 60 seconds. Initial score evaluation runs in the audio worker with a 10-second interrupt deadline; scheduled queries retain their own interrupt deadlines. Score source is limited to 512 KiB and 64 lanes.
 
 This is browser score/audio parity for the supplied demos, not every native integration. Native plugins, Csound, MIDI/OSC/serial devices, local filesystem sample paths, speech synthesis, wavetable-bank installation, seeking and named-const provenance are not supported. JavaScript score semantics remain those of the pinned Rustel version, including its mini-notation treatment of double-quoted strings.
 
@@ -47,3 +47,8 @@ cargo test --manifest-path wasm-audio/Cargo.toml --locked
 The JavaScript test evaluates unchanged demo sources, checks actual scheduling/DSP, sample declarations and installed PCM, and refuses runaway JavaScript. The mini test runs the real WASM engine through the shipped worklet consumer, checking output, queue bounds, pause and stale generations.
 
 Open `/audio-validation.html` and press **Run validation** for an integration check of the shipped host, worker, QuickJS WASM, remote samples, Chrome decoding and worklet. It checks each native demo's source, played PCM and events, command acknowledgements, pause and Stop. Its device gain is zero; analysis occurs before master gain. This check does not make a subjective listening assessment.
+
+The GPUI host prepares the first Nightshade frame before evaluating the default
+score. A refused initial score leaves the viewer and demo catalog usable; Play
+retries the selected score. Worker, worklet, JS glue and WASM requests share a
+content version so an engine update does not reuse an older cached deadline.

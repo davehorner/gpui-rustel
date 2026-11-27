@@ -2,7 +2,9 @@
 export class LocalAudioHost {
   constructor(viewer){
     this.viewer=viewer;this.session=`browser-${crypto.randomUUID()}`;this.generation=0;this.loadSequence=0;this.progress=null;this.frame=0;this.playing=false;this.events=[];this.sequence=0;this.error=null;this.starting=false;this.sampleRate=48000;this.loading=null;this.volume=0.25;this.transportRequests=new Map();this.transportEpoch=0;this.audioInit=null;this.initializingAudio=false;
-    this.worker=new Worker(new URL('./audio-worker.js',import.meta.url),{type:'module'});
+    this.assetVersion=new URL(import.meta.url).searchParams.get('v')||'dev';
+    const workerUrl=new URL('./audio-worker.js',import.meta.url);workerUrl.searchParams.set('v',this.assetVersion);
+    this.worker=new Worker(workerUrl,{type:'module'});
     this.ready=new Promise((resolve,reject)=>{this.workerReady=resolve;this.workerFailure=reject;});
     this.worker.onmessage=({data})=>this.receive(data);
     this.worker.onerror=event=>this.failure(event.message);
@@ -20,8 +22,9 @@ export class LocalAudioHost {
       this.demos[entry.name]={format:'javascript',source:new TextDecoder().decode(bytes),url,overrides:{}};
     }
     this.demo=new URLSearchParams(location.search).has('mini')?Object.keys(this.demos)[0]:'Bachata.strudel';
-    await this.load(structuredClone(this.demos[this.demo]),this.demo);
     this.timer=setInterval(()=>this.publish(),66);
+    this.publish();
+    await this.load(structuredClone(this.demos[this.demo]),this.demo);
     this.tryAutoplay();
   }
   message(topic,value){this.viewer.local_message(topic,typeof value==='string'?value:JSON.stringify(value));}
@@ -85,7 +88,7 @@ export class LocalAudioHost {
     await this.audioInit;
   }
   async initializeAudio(){
-    await this.context.audioWorklet.addModule('./audio-worklet.js');
+    await this.context.audioWorklet.addModule(new URL(`./audio-worklet.js?v=${encodeURIComponent(this.assetVersion)}`,import.meta.url));
     this.sampleRate=this.context.sampleRate;
     const reuse=this.preloadedForAudio&&this.preparedSampleRate===this.sampleRate;
     this.preloadedForAudio=false;
@@ -118,9 +121,9 @@ export class LocalAudioHost {
     if(this.loading||this.starting){if(action==='stop')this.cancelLoad();else if(action!=='pause'&&!(action==='play'&&this.initializingAudio&&!this.starting))throw Error('Browser audio is loading');}
     if(command.transport){
       const action=command.transport.action;
-      if(action==='play'){const epoch=++this.transportEpoch;this.starting=true;try{await this.enable();if(epoch!==this.transportEpoch)throw Error('Play cancelled');await this.playback(true);}finally{this.starting=false;}}
+      if(action==='play'){const epoch=++this.transportEpoch;this.starting=true;try{if(!this.score)await this.load(structuredClone(this.demos[this.demo]),this.demo);await this.enable();if(epoch!==this.transportEpoch)throw Error('Play cancelled');await this.playback(true);}finally{this.starting=false;}}
       else if(action==='pause'){this.transportEpoch++;await this.playback(false);}
-      else if(action==='stop'){this.transportEpoch++;await this.playback(false);if(this.initializingAudio)await this.audioInit.catch(()=>{});await this.load(structuredClone(this.score),this.demo);}
+      else if(action==='stop'){this.transportEpoch++;await this.playback(false);if(this.initializingAudio)await this.audioInit.catch(()=>{});if(this.score)await this.load(structuredClone(this.score),this.demo);}
       else throw Error('Browser audio does not implement seek');
     }else if(command.demo){
       if(!Object.hasOwn(this.demos,command.demo))throw Error('Unknown browser demo');
@@ -141,7 +144,11 @@ export class LocalAudioHost {
     this.publish();this.response(command.request,true);
   }
   publish(){
-    if(!this.score)return;
+    if(!this.score){
+      if(!this.demos)return;
+      this.message('music/snapshot',{version:1,session:this.session,generation:this.generation,cycle:0,cps:0.5,demo:this.demo,demos:Object.keys(this.demos),source:this.demos[this.demo]?.source||'',tempo:{bpm:120,top:4,bottom:4},transport:{paused:true,view_cycle:0},solo_lane:null,lanes:[],events:[],capabilities:{backend:'browser-js-wasm',pause:true,seek:false,stereo:true,named_parts:false,control_maps:false,demo:true,restart:false}});
+      this.message('music/status',this.error?`Browser audio error: ${this.error} · press Play to retry`:this.progress||'Preparing score and samples…');return;
+    }
     const javascript=this.score.format==='javascript',meta=this.metadata;
     const cps=javascript?meta.cps:this.score.bpm*this.score.bottom/(240*this.score.top),cycle=this.frame/this.sampleRate*cps;
     this.events=this.events.filter(event=>event.cycle+event.duration>=cycle-2);

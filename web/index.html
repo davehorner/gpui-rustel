@@ -9,8 +9,9 @@ try {
   await diag.check();diag.phase('Downloading and compiling the GPUI/Rustel WASM module');
   const wasm=await import('./pkg/__VIEWER_VERSION__/gpui_rustel.js');await wasm.default();
   const params=new URLSearchParams(location.search),local=!params.has('hub')&&params.get('audio')!=='native';
+  const firstFrame=new Promise((resolve,reject)=>{const onStage=event=>{if(event.detail?.stage==='ready'||event.detail?.stage==='error'){window.removeEventListener('nightshade-stage',onStage);if(event.detail.stage==='ready')resolve();else reject(Error(event.detail.message));}};window.addEventListener('nightshade-stage',onStage);});
   diag.phase('Starting the GPUI interface');wasm.run(local?'browser':(params.get('hub')||'ws://127.0.0.1:19613'));
-  if(local){diag.phase('Preparing audio and instruments');const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);await audio.start();window.addEventListener('pagehide',()=>audio.close(),{once:true});}
-  diag.appReady();
+  if(local){await firstFrame;diag.phase('Preparing audio and instruments');const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);window.addEventListener('pagehide',()=>audio.close(),{once:true});try{await audio.start();}catch(error){audio.failure(String(error));diag.phase(`Audio unavailable: ${error}`);}}
+  if(!local)await firstFrame;diag.appReady();
 }catch(error){diag.fail(error);}
 </script></body></html>

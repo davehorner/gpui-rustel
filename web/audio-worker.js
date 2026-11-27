@@ -1,6 +1,7 @@
-import init,{BrowserEngine,JavaScriptEngine} from './audio/rustel_browser_audio.js';
-import {SampleLibrary} from './sample-library.js';
-await init();
+const version=encodeURIComponent(new URL(import.meta.url).searchParams.get('v')||'dev');
+const {default:init,BrowserEngine,JavaScriptEngine}=await import(`./audio/rustel_browser_audio.js?v=${version}`);
+const {SampleLibrary}=await import(`./sample-library.js?v=${version}`);
+await init({module_or_path:new URL(`./audio/rustel_browser_audio_bg.wasm?v=${version}`,import.meta.url)});
 let engine=null,generation=0,pipe=null,loadSerial=0,assets=null,decodeSerial=0;
 const decodes=new Map();
 const decode=(bytes,sampleRate)=>new Promise((resolve,reject)=>{const request=++decodeSerial;const timer=setTimeout(()=>{decodes.delete(request);reject(Error("Sample decode timed out"));},35000);decodes.set(request,{resolve,reject,timer});self.postMessage({kind:'decode',request,bytes,sampleRate},[bytes]);});

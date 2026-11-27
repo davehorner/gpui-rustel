@@ -13,10 +13,10 @@ globalThis.fetch=async input=>{
  const bytes=files.get(decodeURIComponent(url.split('/').at(-1)));assert(bytes,url);
  return {ok:true,arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};
 };
-let holdInitialization=false;
+let holdInitialization=false,failFirstLoad=false;
 globalThis.Worker=class {
  constructor(){queueMicrotask(()=>this.onmessage({data:{kind:'ready'}}));}
- postMessage(data){if(data.kind==='load')this.loads=(this.loads||0)+1;if(data.kind==='load'&&holdInitialization&&this.loads===2)return;if(data.kind==='load')queueMicrotask(()=>this.onmessage({data:{kind:'loaded',generation:data.generation,metadata:{cps:0.5,lanes:[]}}}));}
+ postMessage(data){if(data.kind==='load')this.loads=(this.loads||0)+1;if(data.kind==='load'&&failFirstLoad){failFirstLoad=false;queueMicrotask(()=>this.onmessage({data:{kind:'error',generation:data.generation,message:'score evaluation deadline'}}));return;}if(data.kind==='load'&&holdInitialization&&this.loads===2)return;if(data.kind==='load')queueMicrotask(()=>this.onmessage({data:{kind:'loaded',generation:data.generation,metadata:{cps:0.5,lanes:[]}}}));}
  terminate(){}
 };
 let permitted=false,nodes=0;
@@ -48,4 +48,11 @@ host=make();await host.start();await settle();assert.equal(host.playing,true);as
 permitted=false;host=make();await host.start();await command(host,'pause');permitted=true;await host.context.resume();await settle();assert.equal(host.playing,false);host.close();
 // Stop during audio initialization must cancel cleanly and permit a later Play.
 holdInitialization=true;permitted=true;host=make();await host.start();await settle();assert(host.loading&&host.initializingAudio);await command(host,'stop');assert.equal(host.playing,false);assert.equal(host.frame,0);await command(host,'play');assert.equal(host.playing,true);host.close();
-console.log('PASS: default Bachata, allowed autoplay, blocked autoplay + manual Play, single audio graph, pause cancellation, stop during initialization and restart');
+// An initial score refusal leaves the demo catalog available and Play retries.
+holdInitialization=false;failFirstLoad=true;permitted=true;const messages=[];
+host=new LocalAudioHost({local_message(topic,value){messages.push([topic,value]);}});
+await assert.rejects(host.start(),/score evaluation deadline/);host.failure('score evaluation deadline');host.publish();
+const snapshot=JSON.parse(messages.findLast(([topic])=>topic==='music/snapshot')[1]);
+assert(snapshot.demos.includes('Bachata.strudel'));assert.equal(snapshot.transport.paused,true);
+await command(host,'play');assert.equal(host.playing,true);assert.equal(host.demo,'Bachata.strudel');assert.equal(host.worker.loads,2);host.close();
+console.log('PASS: default Bachata, allowed autoplay, blocked autoplay + manual Play, single audio graph, pause cancellation, stop during initialization, restart and recovery from initial score refusal');

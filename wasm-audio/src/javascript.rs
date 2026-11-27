@@ -148,7 +148,8 @@ impl JavaScriptEngine {
             runtime.evaluate_score_with_effects_cancellable(
                 source,
                 &options,
-                Duration::from_millis(1500),
+                // Bounded worker execution: mobile WASM needs more than the native 1.5s budget.
+                Duration::from_secs(10),
                 &cancel,
             )
         })
