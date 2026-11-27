@@ -2,9 +2,9 @@
 <style>body{background:#0b1220;color:#dce9f7;font:16px system-ui;margin:24px}button{font:inherit;padding:12px;margin:4px}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>
 <h1>WebGPU copy and readback check</h1><p>This test loads no WASM, scene, or audio. GPU work starts only when you tap Run checks.</p><button id="run">Run checks</button><button id="copy">Copy report</button><pre id="report"></pre>
 <script type="module">
-import {runGpuCheck} from './gpu-check.js?v=1';
+import {runGpuCheck} from './gpu-check.js?v=2';
 const key='nightshade-gpu-check',output=document.getElementById('report');let previous;try{previous=JSON.parse(localStorage.getItem(key));}catch{}
-const report={userAgent:navigator.userAgent,deviceMemory:navigator.deviceMemory,status:'Not started',lines:[],previous};
+const report={version:2,userAgent:navigator.userAgent,deviceMemory:navigator.deviceMemory,status:'Not started',lines:[],previous};
 function show(){output.textContent=JSON.stringify(report,null,2);try{localStorage.setItem(key,output.textContent);}catch{}}
 show();document.getElementById('copy').onclick=async()=>{try{await navigator.clipboard.writeText(output.textContent);document.getElementById('copy').textContent='Copied';}catch{document.getElementById('copy').textContent='Select report below';}};
 document.getElementById('run').onclick=async()=>{document.getElementById('run').disabled=true;report.status='Running';show();try{await runGpuCheck(line=>{report.lines.push(line);show();});report.status='Passed';}catch(error){report.status='Failed';report.error=String(error?.stack||error);}show();};
