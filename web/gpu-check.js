@@ -21,7 +21,7 @@ export async function runGpuCheck(record) {
     finally{clearTimeout(timer);}
   }
   async function readback(device,format,width,height,draw=null){
-    const label=`${format} ${width}x${height}${draw?' '+draw.mode+' draw firstInstance='+draw.firstInstance:''}`;
+    const label=`${format} ${width}x${height}${draw?' '+draw.mode+' draw firstInstance='+draw.firstInstance+(draw.vertexBranch?' vertex-branch':''):''}`;
     record(`Starting ${label}`);
     let texture,buffer,args;
     device.pushErrorScope('validation');
@@ -33,7 +33,8 @@ export async function runGpuCheck(record) {
       const pass=encoder.beginRenderPass({colorAttachments:[{view:texture.createView(),loadOp:'clear',storeOp:'store',clearValue:{r:draw?0:1,g:0,b:0,a:1}}]});
       if(draw){
         const shader=device.createShaderModule({code:`struct Out {@builtin(position) p:vec4f,@location(0) @interpolate(flat) i:u32}; @vertex fn vs(@builtin(vertex_index) v:u32,@builtin(instance_index) i:u32)->Out {var p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));return Out(vec4f(p[v],0,1),i);} @fragment fn fs(in:Out)->@location(0) vec4f {if(in.i==${draw.firstInstance}u){return vec4f(1,0,0,1);}return vec4f(0,0,1,1);}`});
-        const pipeline=device.createRenderPipeline({layout:'auto',vertex:{module:shader,entryPoint:'vs'},fragment:{module:shader,entryPoint:'fs',targets:[{format}]}});
+        const selectedShader=draw.vertexBranch?device.createShaderModule({code:`@vertex fn vs(@builtin(vertex_index) v:u32,@builtin(instance_index) i:u32)->@builtin(position) vec4f {var p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));if(i != 1u){return vec4f(2,2,0,1);}return vec4f(p[v],0,1);} @fragment fn fs()->@location(0) vec4f {return vec4f(1,0,0,1);}`}):shader;
+        const pipeline=device.createRenderPipeline({layout:'auto',vertex:{module:selectedShader,entryPoint:'vs'},fragment:{module:selectedShader,entryPoint:'fs',targets:[{format}]}});
         args=device.createBuffer({size:16,usage:GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST});device.queue.writeBuffer(args,0,new Uint32Array([3,1,0,draw.firstInstance]));
         pass.setPipeline(pipeline);if(draw.mode==='direct')pass.draw(3,1,0,draw.firstInstance);else pass.drawIndirect(args,0);
       }
@@ -52,6 +53,12 @@ export async function runGpuCheck(record) {
     for(const format of ['rgba8unorm','bgra8unorm'])for(const mode of ['direct','indirect'])for(const firstInstance of [0,1]){
       try{await readback(first,format,64,64,{mode,firstInstance});}
       catch(error){failures.push(String(error));record({failedCase:{format,mode,firstInstance},error:String(error)});}
+    }
+    // Keep the original failure as a positive control: this shader clips vertices
+    // when instance_index is wrong, rather than coloring the fragment blue.
+    for(const format of ['rgba8unorm','bgra8unorm']){
+      try{await readback(first,format,64,64,{mode:'indirect',firstInstance:1,vertexBranch:true});}
+      catch(error){failures.push(String(error));record({failedCase:{format,mode:'indirect',firstInstance:1,vertexBranch:true},error:String(error)});}
     }
     const second=await device('second simultaneous device');
     await readback(second,'bgra8unorm',640,480);await readback(first,'bgra8unorm',640,480);
