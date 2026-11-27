@@ -5,7 +5,7 @@
 <button id="copy">Copy report</button><pre id="report"></pre>
 <script>
 const report={userAgent:navigator.userAgent,secureContext:isSecureContext,webGPUExposed:!!navigator.gpu,deviceMemory:navigator.deviceMemory,devicePixelRatio,viewport:{width:innerWidth,height:innerHeight},previous:{}};
-for(const name of ['Nightshade','Rustel']){try{report.previous[name]=JSON.parse(localStorage.getItem(name+'-startup'));}catch(error){report.previous[name]=String(error);}}
+for(const name of ['Nightshade','GPUI Rustel']){try{report.previous[name]=JSON.parse(localStorage.getItem(name+'-startup'));}catch(error){report.previous[name]=String(error);}}
 const text=JSON.stringify(report,null,2);document.getElementById('report').textContent=text;
 document.getElementById('copy').onclick=async()=>{try{await navigator.clipboard.writeText(text);document.getElementById('copy').textContent='Copied';}catch{document.getElementById('copy').textContent='Select the report below to copy';}};
 </script></html>
