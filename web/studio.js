@@ -10,12 +10,12 @@ export async function startStudio(audioVersion,studioVersion){
     const source=saved||await fetch('./scores/Studio.strudel').then(r=>r.text());
     const studio=new wasm.Studio(source,localStorage.getItem('rustel-studio-workspace-v1')||undefined);window.rustelStudio=studio;
     const style=document.createElement('style');style.textContent=`#studio{position:fixed;inset:0;display:flex;flex-direction:column;background:#101216}#studio header{display:flex;gap:8px;align-items:center;padding:7px;background:#18202d;font:13px system-ui;flex-wrap:wrap}#studio button{color:#e8efff;background:#29384c;border:1px solid #52647d;border-radius:5px;padding:7px 12px}#studio #play{background:#1465db;border-color:#4389ef}#studio canvas{flex:1;min-height:0;width:100%;touch-action:none}#studio-status{margin-left:auto;color:#b3c5dd}#studio-input{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:.01;border:0;padding:0;font-size:16px}`;document.head.append(style);
-    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><button id="zen" aria-pressed="false">Zen</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
+    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><button id="zen" aria-pressed="false">Zen</button><button id="reset">Reset Studio</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
     document.body.append(root);const canvas=root.querySelector('canvas'),ctx=canvas.getContext('2d'),input=root.querySelector('textarea'),status=root.querySelector('#studio-status');
     const {LocalAudioHost}=await import(`./audio-host.js?v=${audioVersion}`);
     let audio=new LocalAudioHost({local_message(topic,value){if(topic==='music/status')status.textContent=String(value);}});audio.tryAutoplay=()=>{};window.rustelStudioAudio=audio;
     let startupAudioError=null;audio.demos={Studio:{format:'javascript',studio:true,source,url:location.href,overrides:{}}};audio.demo='Studio';
-    audio.demos.Studio.source=studio.source();const running=audio.load(audio.demos.Studio,'Studio').catch(error=>{startupAudioError=error;status.textContent=String(error);});let pending=Promise.resolve(),dirty=true,lastSource=source,lastState='',lastFrame='',width=80,height=30,cw=8.4,ch=18;
+    audio.demos.Studio.source=studio.source();const running=audio.load(audio.demos.Studio,'Studio').catch(error=>{startupAudioError=error;status.textContent=String(error);});let timer=null,resetting=false,pending=Promise.resolve(),dirty=true,lastSource=source,lastState='',lastFrame='',width=80,height=30,cw=8.4,ch=18;
     const report=error=>{status.textContent=String(error);console.error(error);};
     function resize(){const rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.font='14px ui-monospace,Consolas,monospace';ctx.textBaseline='top';cw=ctx.measureText('M').width;ch=18;width=Math.max(20,Math.min(300,Math.floor(rect.width/cw)));height=Math.max(10,Math.min(120,Math.floor(rect.height/ch)));dirty=true;lastFrame='';}
     new ResizeObserver(resize).observe(canvas);const fit=()=>{root.style.height=`${window.visualViewport?.height||innerHeight}px`;};window.visualViewport?.addEventListener('resize',fit);fit();resize();
@@ -66,6 +66,21 @@ if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'i
       dirty=true;
     }).catch(report);}}
     root.querySelector('#play').onclick=()=>{event(()=>studio.play());};
+    root.querySelector('#reset').onclick=async()=>{
+      if(resetting||!window.confirm('Reset Studio? This replaces all scores with the starter score and restores the default layout.'))return;
+      const button=root.querySelector('#reset');button.disabled=true;
+      try{
+        const response=await fetch('./scores/Studio.strudel',{cache:'no-store'});
+        if(!response.ok)throw Error('The starter score could not be loaded');
+        const starter=await response.text();
+        // Stop saving the old workspace before clearing Studio's own data.
+        resetting=true;clearInterval(timer);
+        const keys=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i));
+        for(const key of keys)if(key?.startsWith('rustel-studio-file:')||key==='rustel-studio-workspace-v1'||key==='rustel-studio-draft-v1')localStorage.removeItem(key);
+        localStorage.setItem('rustel-studio-file:browser/live.strudel',starter);
+        audio.close();location.reload();
+      }catch(error){resetting=false;button.disabled=false;report(error);}
+    };
     root.querySelector('#zen').onclick=()=>event(()=>studio.toggle_zen());
     root.querySelector('#stop').onclick=()=>event(()=>studio.stop());
     root.querySelector('#keyboard').onclick=()=>input.focus();
@@ -91,7 +106,7 @@ if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'i
     boot.hidden=true;paint();
     await running.catch(report);
     if(!audio.error&&!startupAudioError)status.textContent='Ready · Play evaluates the score';
-    let audioSequence=0,eventGeneration=0,lastEvent=0,lastIdlePaint=0;const timer=setInterval(()=>{try{if(audio.generation!==eventGeneration){eventGeneration=audio.generation;lastEvent=0;}const events=audio.events.filter(e=>e.id>=lastEvent);if(events.length){lastEvent=Math.max(...events.map(e=>e.id))+1;studio.events(JSON.stringify(events),audio.generation,audio.frame/audio.sampleRate,audio.metadata?.cps||.5);}if(audio.analyser&&audio.playing){const samples=new Float32Array(4096);audio.analyser.fftSize=4096;audio.analyser.getFloatTimeDomainData(samples);studio.audio(JSON.stringify({master:Array.from(samples),visuals:audio.visuals||[]}),audio.generation,++audioSequence,audio.frame/audio.sampleRate,audio.sampleRate);}studio.transport(audio.playing,audio.generation,audio.frame/audio.sampleRate*(audio.metadata?.cps||.5),audio.metadata?.cps||.5);dispatch();const state=studio.state();if(state!==lastState){lastState=state;localStorage.setItem('rustel-studio-workspace-v1',state);}if(audio.gain)audio.gain.gain.value=audio.volume*studio.gain();const next=studio.source();if(next!==lastSource){lastSource=next;localStorage.setItem('rustel-studio-file:browser/live.strudel',next);dirty=true;}if(dirty||audio.playing||Date.now()-lastIdlePaint>250){paint();dirty=false;lastIdlePaint=Date.now();}}catch(e){report(e);}},100);
-    window.addEventListener('pagehide',()=>{clearInterval(timer);audio.close();studio.free();},{once:true});
+    let audioSequence=0,eventGeneration=0,lastEvent=0,lastIdlePaint=0;timer=setInterval(()=>{try{if(audio.generation!==eventGeneration){eventGeneration=audio.generation;lastEvent=0;}const events=audio.events.filter(e=>e.id>=lastEvent);if(events.length){lastEvent=Math.max(...events.map(e=>e.id))+1;studio.events(JSON.stringify(events),audio.generation,audio.frame/audio.sampleRate,audio.metadata?.cps||.5);}if(audio.analyser&&audio.playing){const samples=new Float32Array(4096);audio.analyser.fftSize=4096;audio.analyser.getFloatTimeDomainData(samples);studio.audio(JSON.stringify({master:Array.from(samples),visuals:audio.visuals||[]}),audio.generation,++audioSequence,audio.frame/audio.sampleRate,audio.sampleRate);}studio.transport(audio.playing,audio.generation,audio.frame/audio.sampleRate*(audio.metadata?.cps||.5),audio.metadata?.cps||.5);dispatch();const state=studio.state();if(state!==lastState){lastState=state;localStorage.setItem('rustel-studio-workspace-v1',state);}if(audio.gain)audio.gain.gain.value=audio.volume*studio.gain();const next=studio.source();if(next!==lastSource){lastSource=next;localStorage.setItem('rustel-studio-file:browser/live.strudel',next);dirty=true;}if(dirty||audio.playing||Date.now()-lastIdlePaint>250){paint();dirty=false;lastIdlePaint=Date.now();}}catch(e){report(e);}},100);
+    window.addEventListener('pagehide',()=>{clearInterval(timer);if(!resetting)audio.close();studio.free();},{once:true});
   }catch(error){fail(error);}
 }

@@ -4,6 +4,8 @@
 
 The source is Rustel `79fd1fb3fd64c0a637f475ad24de675fd5b2ac59`. `BrowserStudio` calls the original `App` input handler and `paint_into`; Ratatui cells, colors and cursor are painted on Canvas2D. The test-only Studio harness is not enabled. The original editor, menus, scenes, selection, undo, syntax, inline widgets and settings remain Rust code.
 
+**Reset Studio** stays in the browser toolbar even when native controls are hidden. After confirmation it restores `Studio.strudel`, clears saved Studio scenes and layout preferences, and reloads with factory defaults. Other applications’ saved settings are preserved.
+
 The Zen toolbar button remains reachable when native chrome is hidden. Leaving Zen re-enables the menu, header, footer, line numbers, minimap and scrollbars, and restores visualizer docks that were open before entering Zen.
 
 The browser adapter replaces the terminal loop and native worker boundary. Score evaluation and synthesis use the existing Rustel WASM worker and AudioWorklet. Each visual receiver has its own scalar-audio capture; scope/spectrum are analyzed with upstream Studio's FFT reduction. Master and orbit faders and score sliders go to browser audio. Draft scenes and preferences use local storage; Open/Download handle local files. Browser clipboard, IME input, a mobile keyboard button and fullscreen are handled by the host.
