@@ -18,6 +18,8 @@ def main():
         raise SystemExit(f"Install the matching project tool: cargo install wasm-bindgen-cli --version {version} --locked --root target/wasm-tools")
     audio=APP/"wasm-audio"
     subprocess.run([sys.executable,str(audio/"build.py"),"--out",str(args.out/"audio")],check=True,cwd=ROOT)
+    subprocess.run([sys.executable,str(APP/"wasm-studio/build.py"),"--out",str(args.out/"studio")],check=True,cwd=ROOT)
+    studio_version=(args.out/"studio/version.txt").read_text(encoding="utf-8").strip()
     audio_hash=hashlib.sha256()
     for file in [APP/'web'/name for name in ['audio-host.js','audio-worker.js','audio-worklet.js','sample-library.js']]+[args.out/'audio/rustel_browser_audio.js',args.out/'audio/rustel_browser_audio_bg.wasm']:
         audio_hash.update(file.read_bytes())
@@ -35,7 +37,7 @@ def main():
         shutil.copyfile(ROOT/".build-sources/rustel-browser-engine/crates/runtime/assets"/name,banks/name)
     for file in (APP/"web").iterdir():
         if file.suffix==".html":
-            (args.out/file.name).write_text(file.read_text(encoding="utf-8").replace("__AUDIO_HOST_VERSION__",host_version).replace("__VIEWER_VERSION__",viewer_version),encoding="utf-8",newline="\n")
+            (args.out/file.name).write_text(file.read_text(encoding="utf-8").replace("__AUDIO_HOST_VERSION__",host_version).replace("__VIEWER_VERSION__",viewer_version).replace("__STUDIO_VERSION__",studio_version),encoding="utf-8",newline="\n")
         elif file.suffix in {".js",".json"}:shutil.copyfile(file,args.out/file.name)
     (args.out/"javascript-demos.json").write_text(json.dumps(catalog,indent=2)+"\n",encoding="utf-8")
     (args.out/".nojekyll").touch()
@@ -48,5 +50,7 @@ def main():
     for name in ["Cargo.toml","Cargo.lock","LICENSE","README.md","prepare_engine.py","build.py"]:shutil.copyfile(audio/name,source/name)
     shutil.copytree(audio/"src",source/"src",dirs_exist_ok=True)
     shutil.copytree(audio/"patches",source/"patches",dirs_exist_ok=True)
+    studio_source=args.out/"source/rustel-browser-studio"
+    shutil.copytree(APP/"wasm-studio",studio_source,dirs_exist_ok=True,ignore=shutil.ignore_patterns("target","__pycache__"))
     print(f"Built {args.out}\nServe: python gpui-rustel/web/serve.py --directory {args.out}")
 if __name__=="__main__":main()

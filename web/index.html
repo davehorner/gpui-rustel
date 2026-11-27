@@ -4,6 +4,11 @@
 <body><div id="boot" role="status">Loading GPUI Rustel…<noscript>JavaScript is required to start this WebAssembly viewer.</noscript></div>
 <script type="module">
 import {startup} from './startup.js?v=__VIEWER_VERSION__';
+const params=new URLSearchParams(location.search);
+if(params.has('studio')) {
+  const {startStudio}=await import('./studio.js?v=__STUDIO_VERSION__');
+  await startStudio('__AUDIO_HOST_VERSION__','__STUDIO_VERSION__');
+} else {
 const diag=startup(document.querySelector('#boot'),'GPUI Rustel','__VIEWER_VERSION__');
 try {
   await diag.check();diag.phase('Downloading and compiling the GPUI/Rustel WASM module');
@@ -14,4 +19,5 @@ try {
   if(local){await firstFrame;diag.phase('Preparing audio and instruments');const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);window.addEventListener('pagehide',()=>audio.close(),{once:true});try{await audio.start();}catch(error){audio.failure(String(error));diag.phase(`Audio unavailable: ${error}`);}}
   if(!local)await firstFrame;diag.appReady();
 }catch(error){diag.fail(error);}
+}
 </script></body></html>

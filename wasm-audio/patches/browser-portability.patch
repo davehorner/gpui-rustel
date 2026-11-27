@@ -130,6 +130,36 @@ index 0ab7621..4cdcf2d 100644
          let far = scale_offset("C:major", 1e9, "c3").expect("a large offset resolves");
          assert!(
              started.elapsed() < std::time::Duration::from_secs(2),
+diff --git a/crates/csound/src/engine.rs b/crates/csound/src/engine.rs
+index 28bdfcc..4c14a1a 100644
+--- a/crates/csound/src/engine.rs
++++ b/crates/csound/src/engine.rs
+@@ -1,3 +1,4 @@
++#[cfg(not(target_arch = "wasm32"))]
+ use libloading::Library;
+ use std::ffi::{CStr, CString, OsStr, OsString, c_char, c_int, c_void};
+ use std::sync::{Arc, OnceLock};
+@@ -59,6 +60,7 @@ fn opcode_dir(library: &OsStr) -> Option<std::path::PathBuf> {
+ }
+ 
+ struct Api {
++    #[cfg(not(target_arch = "wasm32"))]
+     _library: Library,
+     create: unsafe extern "C" fn(Handle) -> Handle,
+     destroy: unsafe extern "C" fn(Handle),
+@@ -87,6 +89,12 @@ impl Api {
+         API.get_or_init(Self::open).clone()
+     }
+ 
++    #[cfg(target_arch = "wasm32")]
++    fn open() -> Result<Arc<Self>, String> {
++        Err("Native Csound libraries are unavailable in the browser".into())
++    }
++
++    #[cfg(not(target_arch = "wasm32"))]
+     fn open() -> Result<Arc<Self>, String> {
+         // The library and its dependencies execute native code. Only the host
+         // environment, never a score, supplies its search path.
 diff --git a/crates/jsruntime/Cargo.toml b/crates/jsruntime/Cargo.toml
 index a853485..88f0480 100644
 --- a/crates/jsruntime/Cargo.toml
@@ -281,6 +311,1556 @@ index cc93698..1617ed2 100644
      let result = unsafe { rquickjs::qjs::JS_Call(raw_ctx, implementation, undefined, argc, argv) };
      unsafe { rquickjs::qjs::JS_FreeValue(raw_ctx, implementation) };
      result
+diff --git a/crates/midi/Cargo.toml b/crates/midi/Cargo.toml
+index b5afc9e..438d85a 100644
+--- a/crates/midi/Cargo.toml
++++ b/crates/midi/Cargo.toml
+@@ -15,6 +15,7 @@ default = ["device"]
+ device = ["dep:midir"]
+ 
+ [dependencies]
++web-time = "1"
+ rustel-core = { path = "../core" }
+ midir = { version = "0.11", optional = true }
+ 
+diff --git a/crates/midi/src/lib.rs b/crates/midi/src/lib.rs
+index c423fcb..077bc00 100644
+--- a/crates/midi/src/lib.rs
++++ b/crates/midi/src/lib.rs
+@@ -31,7 +31,7 @@ use std::cmp::Reverse;
+ use std::collections::{BinaryHeap, HashMap};
+ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+ use std::sync::{Arc, Condvar, Mutex};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ #[cfg(feature = "device")]
+ use midir::{MidiOutput, MidiOutputConnection};
+diff --git a/crates/runtime/Cargo.toml b/crates/runtime/Cargo.toml
+index 5e337c0..c090500 100644
+--- a/crates/runtime/Cargo.toml
++++ b/crates/runtime/Cargo.toml
+@@ -111,6 +111,7 @@ name = "e2e"
+ path = "tests/e2e.rs"
+ 
+ [dependencies]
++web-time = "1"
+ serde = { version = "1", features = ["derive"] }
+ # `preserve_order` keeps `serde_json::Map` in document order, which a note
+ # bank's closest-key tie-break depends on (see `Bank::Notes`).
+@@ -186,7 +187,7 @@ image = { version = "=0.25.10", default-features = false, features = [
+ rustel-transpiler = { path = "../transpiler" }
+ # Blocking HTTP with rustls for sample-bank fetches. Never touches the audio
+ # thread.
+-ureq = { version = "2", default-features = false, features = ["tls"] }
++
+ url = "2.5.8"
+ # Compressed sample decoding, pure Rust, producer-thread only: mp3 for the
+ # piano bank (dough-samples ships mp3), and Ogg Vorbis because that is what a
+@@ -272,3 +273,10 @@ libc = "0.2"
+ 
+ [lints]
+ workspace = true
++
++# Browser samples use the host fetch bridge, never native TLS sockets.
++[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++ureq = { version = "2", default-features = false, features = ["tls"] }
++
++[target.'cfg(target_arch = "wasm32")'.dependencies]
++ureq = { version = "2", default-features = false }
+diff --git a/crates/runtime/src/engine_pressure.rs b/crates/runtime/src/engine_pressure.rs
+index 36c2fb1..76f4698 100644
+--- a/crates/runtime/src/engine_pressure.rs
++++ b/crates/runtime/src/engine_pressure.rs
+@@ -1,6 +1,6 @@
+ //! Presentation-neutral live engine pressure and overload classification.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_audio::{
+     LiveDeviceReport, MAX_ACTIVE_VOICES, MAX_PENDING_EVENTS, MAX_POLYPHONY, RealtimePool,
+diff --git a/crates/runtime/src/gamepad.rs b/crates/runtime/src/gamepad.rs
+index fcd2a40..a469744 100644
+--- a/crates/runtime/src/gamepad.rs
++++ b/crates/runtime/src/gamepad.rs
+@@ -23,7 +23,7 @@ later version.
+ //! rest of the process.
+ 
+ use std::sync::OnceLock;
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use rustel_core::gamepad::{self as pads, MAX_PADS, Notice};
+ 
+@@ -166,7 +166,7 @@ struct Slots<Id> {
+     /// The driver's id in each slot; none while the slot's pad is away.
+     ids: Vec<Option<Id>>,
+     /// When the slot's pad went, until the studio has been told.
+-    unplugged_at: Vec<Option<std::time::Instant>>,
++    unplugged_at: Vec<Option<web_time::Instant>>,
+ }
+ 
+ impl<Id: Copy + PartialEq> Slots<Id> {
+@@ -207,14 +207,14 @@ impl<Id: Copy + PartialEq> Slots<Id> {
+     fn unplug(&mut self, id: Id) -> Option<usize> {
+         let slot = self.of(id)?;
+         self.ids[slot] = None;
+-        self.unplugged_at[slot] = Some(std::time::Instant::now());
++        self.unplugged_at[slot] = Some(web_time::Instant::now());
+         Some(slot)
+     }
+ 
+     /// The slots whose pads have been gone longer than the grace: their
+     /// leaving is news now.
+     fn overdue(&mut self) -> Vec<usize> {
+-        let now = std::time::Instant::now();
++        let now = web_time::Instant::now();
+         let mut gone = Vec::new();
+         for (slot, at) in self.unplugged_at.iter_mut().enumerate() {
+             if at.is_some_and(|at| now.duration_since(at) >= REPLUG_GRACE) {
+@@ -258,7 +258,7 @@ fn departure(slot: usize) -> Notice {
+ #[cfg(target_os = "macos")]
+ mod framework {
+     use std::sync::Mutex;
+-    use std::time::{Duration, Instant};
++    use web_time::{Duration, Instant};
+ 
+     use objc2::MainThreadMarker;
+     use objc2_core_foundation::{CFRunLoop, kCFRunLoopDefaultMode};
+@@ -515,7 +515,7 @@ mod framework {
+ /// The pads through gilrs, on Linux and Windows.
+ #[cfg(not(target_os = "macos"))]
+ mod hid {
+-    use std::time::Duration;
++    use web_time::Duration;
+ 
+     use gilrs::{Axis, Button, EventType, GamepadId, Gilrs};
+     use rustel_core::gamepad as pads;
+@@ -674,8 +674,8 @@ mod hid {
+     /// pad a moment after it opens, so this listens briefly before answering.
+     pub fn list() -> Result<Vec<(usize, String)>, String> {
+         let mut gilrs = Gilrs::new().map_err(|error| error.to_string())?;
+-        let deadline = std::time::Instant::now() + Duration::from_millis(400);
+-        while std::time::Instant::now() < deadline {
++        let deadline = web_time::Instant::now() + Duration::from_millis(400);
++        while web_time::Instant::now() < deadline {
+             let _ = gilrs.next_event_blocking(Some(Duration::from_millis(50)));
+         }
+         let pads: Vec<(usize, String)> = gilrs
+@@ -764,8 +764,8 @@ mod hid {
+         let mut gilrs = Gilrs::new().map_err(|error| error.to_string())?;
+         let mut slots: Slots<GamepadId> = Slots::new();
+         // gilrs on macOS reports a pad a moment after it opens.
+-        let settle = std::time::Instant::now() + Duration::from_millis(400);
+-        while std::time::Instant::now() < settle {
++        let settle = web_time::Instant::now() + Duration::from_millis(400);
++        while web_time::Instant::now() < settle {
+             let _ = gilrs.next_event_blocking(Some(Duration::from_millis(50)));
+         }
+         let mut connected: Vec<GamepadId> = gilrs
+@@ -804,9 +804,9 @@ mod hid {
+             "listening for {} seconds - press buttons and move the sticks",
+             duration.as_secs()
+         ));
+-        let deadline = std::time::Instant::now() + duration;
++        let deadline = web_time::Instant::now() + duration;
+         let mut reports = 0usize;
+-        while std::time::Instant::now() < deadline && !stop() {
++        while web_time::Instant::now() < deadline && !stop() {
+             if let Some(receiver) = gilrs_log.as_ref() {
+                 while let Ok(line) = receiver.try_recv() {
+                     print(line);
+diff --git a/crates/runtime/src/hydra.rs b/crates/runtime/src/hydra.rs
+index 07cded8..6cddec3 100644
+--- a/crates/runtime/src/hydra.rs
++++ b/crates/runtime/src/hydra.rs
+@@ -9,7 +9,7 @@
+ //! Studio owns one [`HydraBridge`]. `rustel play <score>` plays the music and
+ //! reports that the visuals need Studio.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_core::purity::PurePattern;
+ use rustel_fraction::Fraction;
+diff --git a/crates/runtime/src/hydra_input.rs b/crates/runtime/src/hydra_input.rs
+index fd6842e..8c91713 100644
+--- a/crates/runtime/src/hydra_input.rs
++++ b/crates/runtime/src/hydra_input.rs
+@@ -11,7 +11,7 @@ use std::io::Cursor;
+ use std::path::{Path, PathBuf};
+ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+ use std::sync::{Arc, Condvar, Mutex, mpsc};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use image::{ImageReader, Limits};
+ use oximedia_capture::{
+diff --git a/crates/runtime/src/lib.rs b/crates/runtime/src/lib.rs
+index 08dc56c..42109a1 100644
+--- a/crates/runtime/src/lib.rs
++++ b/crates/runtime/src/lib.rs
+@@ -187,3 +187,15 @@ pub use watch::{
+     FileWatch, MAX_WATCH_SOURCE_BYTES, ReloadEvent, ReloadStatus, WatchLanguage, WatchPoll,
+     WatchTarget,
+ };
++
++#[cfg(target_arch = "wasm32")]
++trait BrowserFileUrl {
++    fn from_file_path<P: AsRef<std::path::Path>>(_path: P) -> Result<url::Url, ()> {
++        Err(())
++    }
++    fn to_file_path(&self) -> Result<std::path::PathBuf, ()> {
++        Err(())
++    }
++}
++#[cfg(target_arch = "wasm32")]
++impl BrowserFileUrl for url::Url {}
+diff --git a/crates/runtime/src/link.rs b/crates/runtime/src/link.rs
+index 55e69b1..66b254e 100644
+--- a/crates/runtime/src/link.rs
++++ b/crates/runtime/src/link.rs
+@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::mpsc::{Receiver, Sender, channel};
+ use std::sync::{Arc, Mutex};
+ use std::thread;
+-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
++use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+ 
+ /// How often a participant says it is alive.
+ const ALIVE_INTERVAL: Duration = Duration::from_secs(1);
+diff --git a/crates/runtime/src/live.rs b/crates/runtime/src/live.rs
+index af65ba5..6b3dc5c 100644
+--- a/crates/runtime/src/live.rs
++++ b/crates/runtime/src/live.rs
+@@ -8,7 +8,7 @@
+ 
+ use std::collections::VecDeque;
+ use std::path::PathBuf;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use crate::session::confirmation::WindowReservation;
+ use rustel_audio::QueuedAudioEvent;
+diff --git a/crates/runtime/src/midi_bridge.rs b/crates/runtime/src/midi_bridge.rs
+index 49b41da..93f54fb 100644
+--- a/crates/runtime/src/midi_bridge.rs
++++ b/crates/runtime/src/midi_bridge.rs
+@@ -23,7 +23,6 @@ use std::{
+     collections::{BTreeSet, HashMap, VecDeque},
+     sync::atomic::{AtomicU64, Ordering},
+     sync::{Arc, Condvar, Mutex},
+-    time::{Duration, Instant},
+ };
+ 
+ use rustel_midi::MidiSender;
+@@ -3755,3 +3754,5 @@ mod tests {
+         assert!(outputs.poll_notices_at(0, 0, 0).is_empty());
+     }
+ }
++
++use web_time::{Duration, Instant};
+diff --git a/crates/runtime/src/midi_clock.rs b/crates/runtime/src/midi_clock.rs
+index 748593e..757ba77 100644
+--- a/crates/runtime/src/midi_clock.rs
++++ b/crates/runtime/src/midi_clock.rs
+@@ -10,7 +10,7 @@
+ //! engine steers the scheduler towards.
+ 
+ use std::sync::{Arc, Mutex};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_midi::MidiMessage;
+ use rustel_midi::MidiSender;
+diff --git a/crates/runtime/src/midi_hotplug.rs b/crates/runtime/src/midi_hotplug.rs
+index 3fe4d99..4ad1c05 100644
+--- a/crates/runtime/src/midi_hotplug.rs
++++ b/crates/runtime/src/midi_hotplug.rs
+@@ -34,7 +34,7 @@ mod macos {
+     /// How long one pump of the run loop may wait for a notification, and
+     /// how long the thread sleeps instead when the mode has nothing to wait
+     /// for: one cadence, so the two can never drift apart.
+-    const WATCH_CADENCE: std::time::Duration = std::time::Duration::from_millis(250);
++    const WATCH_CADENCE: web_time::Duration = web_time::Duration::from_millis(250);
+ 
+     pub(super) fn ensure_watching() {
+         WATCHING.get_or_init(|| {
+diff --git a/crates/runtime/src/midi_input.rs b/crates/runtime/src/midi_input.rs
+index ad2ce41..adec537 100644
+--- a/crates/runtime/src/midi_input.rs
++++ b/crates/runtime/src/midi_input.rs
+@@ -18,7 +18,7 @@ later version.
+ use std::collections::{BTreeSet, VecDeque};
+ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+ use std::sync::{Arc, Condvar, Mutex};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_core::midi_in::{InputBus, InputPort, MAX_INPUT_PORTS};
+ use rustel_midi::input::{MidiEvent, MidiListener};
+@@ -99,6 +99,12 @@ pub fn quiet_inputs(opener: Arc<dyn InputOpener>) -> MidiInputs {
+ struct PlatformInputOpener;
+ 
+ impl InputOpener for PlatformInputOpener {
++    #[cfg(target_arch = "wasm32")]
++    fn open(&self, _port: Arc<InputPort>) -> Result<Box<dyn ManagedListener>, String> {
++        Err("Browser MIDI inputs require the host bridge".into())
++    }
++
++    #[cfg(not(target_arch = "wasm32"))]
+     fn open(&self, port: Arc<InputPort>) -> Result<Box<dyn ManagedListener>, String> {
+         // The callback captures its own strong reference. A driver may finish
+         // a callback while the worker retires the connection.
+diff --git a/crates/runtime/src/process_stats.rs b/crates/runtime/src/process_stats.rs
+index b62872c..94094b4 100644
+--- a/crates/runtime/src/process_stats.rs
++++ b/crates/runtime/src/process_stats.rs
+@@ -7,7 +7,7 @@
+ //! the last value for a short time. None of it ever stops playback or
+ //! drawing.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ /// One sampled reading of this process, and of the machine it runs on.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+diff --git a/crates/runtime/src/producer.rs b/crates/runtime/src/producer.rs
+index 5ae9e6a..89cef91 100644
+--- a/crates/runtime/src/producer.rs
++++ b/crates/runtime/src/producer.rs
+@@ -1,7 +1,7 @@
+ //! Bounded producer-thread load and phase telemetry.
+ 
+ #[cfg(any(feature = "device-audio", test))]
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ pub const PRODUCER_PHASE_COUNT: usize = 10;
+ pub const PRODUCER_REPORTING_WINDOW_TURNS: u64 = 256;
+diff --git a/crates/runtime/src/render.rs b/crates/runtime/src/render.rs
+index ee79f98..6f3d747 100644
+--- a/crates/runtime/src/render.rs
++++ b/crates/runtime/src/render.rs
+@@ -400,10 +400,10 @@ fn plan_render(
+     if library.is_none() {
+         return Ok(RenderPlan::of_chains(ordered, sample_rate));
+     }
+-    let mut spoke_at = std::time::Instant::now();
++    let mut spoke_at = web_time::Instant::now();
+     let progress = |built: usize, of: usize| {
+-        if report && spoke_at.elapsed() >= std::time::Duration::from_secs(2) {
+-            spoke_at = std::time::Instant::now();
++        if report && spoke_at.elapsed() >= web_time::Duration::from_secs(2) {
++            spoke_at = web_time::Instant::now();
+             report_progress(
+                 serde_json::json!({
+                     "render_progress": { "phase": "plugins", "built": built, "of": of }
+@@ -996,9 +996,8 @@ pub(crate) fn render_scalar_pcm_with_refusals(
+                 stop.check()?;
+                 let _ = tallied_scalar_event(onset, sample_rate, cps, lookup, 0, dropped.as_mut());
+             }
+-            library.wait_until_idle_cancellable(std::time::Duration::from_secs(120), || {
+-                stop.stopped()
+-            });
++            library
++                .wait_until_idle_cancellable(web_time::Duration::from_secs(120), || stop.stopped());
+             stop.check()?;
+         }
+     }
+@@ -1469,13 +1468,13 @@ pub(crate) fn write_scalar_wav_controlled_with_dispatch(
+         //
+         // The last pass counts the notices, so these rounds drop theirs.
+         let mut dropped = notice_tally();
+-        let mut spoke_at = std::time::Instant::now();
++        let mut spoke_at = web_time::Instant::now();
+         for round in 0..3 {
+             for onset in onsets.iter().filter(|onset| plays_locally(onset)) {
+                 stop.check()?;
+                 let _ = tallied_scalar_event(onset, sample_rate, cps, lookup, 0, dropped.as_mut());
+-                if report && spoke_at.elapsed() >= std::time::Duration::from_secs(2) {
+-                    spoke_at = std::time::Instant::now();
++                if report && spoke_at.elapsed() >= web_time::Duration::from_secs(2) {
++                    spoke_at = web_time::Instant::now();
+                     report_progress(
+                         serde_json::json!({
+                             "render_progress": {
+@@ -1495,9 +1494,8 @@ pub(crate) fn write_scalar_wav_controlled_with_dispatch(
+                     );
+                 }
+             }
+-            library.wait_until_idle_cancellable(std::time::Duration::from_secs(120), || {
+-                stop.stopped()
+-            });
++            library
++                .wait_until_idle_cancellable(web_time::Duration::from_secs(120), || stop.stopped());
+             stop.check()?;
+         }
+     }
+@@ -1590,10 +1588,10 @@ pub(crate) fn write_scalar_wav_controlled_with_dispatch(
+         fader,
+         ..
+     } = control;
+-    let mut spoke_at = std::time::Instant::now();
++    let mut spoke_at = web_time::Instant::now();
+     let mut observed = |tick: rustel_audio::RenderTick<'_>| {
+-        if report && spoke_at.elapsed() >= std::time::Duration::from_secs(2) {
+-            spoke_at = std::time::Instant::now();
++        if report && spoke_at.elapsed() >= web_time::Duration::from_secs(2) {
++            spoke_at = web_time::Instant::now();
+             let written = (tick.frames_written as f64 / f64::from(sample_rate)).round();
+             let total = (tick.frames_total as f64 / f64::from(sample_rate)).round();
+             let percent =
+diff --git a/crates/runtime/src/sample_fetch.rs b/crates/runtime/src/sample_fetch.rs
+index a47d707..50bdb54 100644
+--- a/crates/runtime/src/sample_fetch.rs
++++ b/crates/runtime/src/sample_fetch.rs
+@@ -26,7 +26,7 @@ use std::io;
+ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{Arc, Mutex, OnceLock, mpsc};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+ /// The slowest rate a file is given the time to arrive at, in bytes a
+diff --git a/crates/runtime/src/sample_server.rs b/crates/runtime/src/sample_server.rs
+index 79e7cb0..6c34c6c 100644
+--- a/crates/runtime/src/sample_server.rs
++++ b/crates/runtime/src/sample_server.rs
+@@ -10,7 +10,7 @@ use std::net::{IpAddr, TcpListener, TcpStream};
+ use std::path::{Component, Path, PathBuf};
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ #[cfg(test)]
+ use crate::samples::{MAX_SAMPLE_MANIFEST_BYTES, MAX_SAMPLE_SCAN_WORK_BYTES};
+diff --git a/crates/runtime/src/samples.rs b/crates/runtime/src/samples.rs
+index 5ebd829..6d86f01 100644
+--- a/crates/runtime/src/samples.rs
++++ b/crates/runtime/src/samples.rs
+@@ -18,7 +18,7 @@ use std::io::{Read, Write};
+ use std::path::{Path, PathBuf};
+ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+ use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock, Weak, mpsc};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_audio::{
+     BUNDLED_BD_SAMPLE_ID, BUNDLED_BD_SAMPLE_IDENTITY, DecodedSample, SAMPLE_BANK_CAPACITY, SampleId,
+@@ -2486,7 +2486,7 @@ pub(crate) mod wait_tests {
+     use std::sync::Arc;
+     use std::sync::atomic::{AtomicBool, Ordering};
+     use std::sync::mpsc::{self, Receiver, Sender};
+-    use std::time::Duration;
++    use web_time::Duration;
+ 
+     use rustel_scheduler::Transport;
+ 
+diff --git a/crates/runtime/src/samples/access.rs b/crates/runtime/src/samples/access.rs
+index 19aadbd..40dc3cc 100644
+--- a/crates/runtime/src/samples/access.rs
++++ b/crates/runtime/src/samples/access.rs
+@@ -1152,3 +1152,6 @@ mod tests {
+         }
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++use crate::BrowserFileUrl;
+diff --git a/crates/runtime/src/samples/cache.rs b/crates/runtime/src/samples/cache.rs
+index a767600..081e3db 100644
+--- a/crates/runtime/src/samples/cache.rs
++++ b/crates/runtime/src/samples/cache.rs
+@@ -1209,8 +1209,8 @@ mod tests {
+         /// in `name` that no earlier process can have cached.
+         fn serve(name: &str, bodies: Vec<Vec<u8>>) -> (String, std::thread::JoinHandle<()>) {
+             let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+-            let unique = std::time::SystemTime::now()
+-                .duration_since(std::time::UNIX_EPOCH)
++            let unique = web_time::SystemTime::now()
++                .duration_since(web_time::UNIX_EPOCH)
+                 .unwrap_or_default()
+                 .as_nanos();
+             let url = format!(
+@@ -2957,7 +2957,7 @@ mod tests {
+             let url = Url::from_file_path(&target)
+                 .expect("sample file URL")
+                 .to_string();
+-            let started = std::time::Instant::now();
++            let started = web_time::Instant::now();
+             let error = fetch_score_source_with_budget(
+                 &url,
+                 &access,
+@@ -2987,7 +2987,7 @@ mod tests {
+                 "{error}"
+             );
+             assert!(
+-                started.elapsed() < std::time::Duration::from_secs(1),
++                started.elapsed() < web_time::Duration::from_secs(1),
+                 "opening the replacement FIFO blocked"
+             );
+ 
+diff --git a/crates/runtime/src/samples/catalog.rs b/crates/runtime/src/samples/catalog.rs
+index 776b582..8191bbf 100644
+--- a/crates/runtime/src/samples/catalog.rs
++++ b/crates/runtime/src/samples/catalog.rs
+@@ -2961,8 +2961,8 @@ mod tests {
+         let library = SampleLibrary::empty();
+         let mut access = ScoreSampleAccess::denied();
+         access.permit_source(&origin).expect("the server's origin");
+-        let unique = std::time::SystemTime::now()
+-            .duration_since(std::time::UNIX_EPOCH)
++        let unique = web_time::SystemTime::now()
++            .duration_since(web_time::UNIX_EPOCH)
+             .unwrap_or_default()
+             .as_nanos();
+         let import = format!("{origin}/kit-{}-{unique}.json", std::process::id());
+@@ -3055,8 +3055,8 @@ mod tests {
+         let library = SampleLibrary::empty();
+         let mut access = ScoreSampleAccess::denied();
+         access.permit_source(&origin).expect("the server's origin");
+-        let unique = std::time::SystemTime::now()
+-            .duration_since(std::time::UNIX_EPOCH)
++        let unique = web_time::SystemTime::now()
++            .duration_since(web_time::UNIX_EPOCH)
+             .unwrap_or_default()
+             .as_nanos();
+         let import = format!("{origin}/withdrawn-{}-{unique}.json", std::process::id());
+diff --git a/crates/runtime/src/samples/decode_cache.rs b/crates/runtime/src/samples/decode_cache.rs
+index c0b5752..4c6c247 100644
+--- a/crates/runtime/src/samples/decode_cache.rs
++++ b/crates/runtime/src/samples/decode_cache.rs
+@@ -27,7 +27,7 @@ const MAX_DECODED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+ 
+ /// How long a staging file goes unwritten before it counts as left by a
+ /// writer that ended mid-write. A writer streams its file out in seconds.
+-const STALE_STAGING: std::time::Duration = std::time::Duration::from_secs(10 * 60);
++const STALE_STAGING: web_time::Duration = web_time::Duration::from_secs(10 * 60);
+ 
+ /// Decode `bytes` through the decoded-PCM cache under `dir`.
+ ///
+@@ -331,7 +331,7 @@ mod tests {
+         for (age, path) in (1..).zip(&paths) {
+             write_sidecar(path, &stored, 2 * size);
+             // A second apart, whatever the clock resolution of the disk.
+-            let written = std::time::UNIX_EPOCH + std::time::Duration::from_secs(age);
++            let written = web_time::UNIX_EPOCH + web_time::Duration::from_secs(age);
+             let file = std::fs::File::options().write(true).open(path).unwrap();
+             file.set_modified(written).unwrap();
+         }
+@@ -361,7 +361,7 @@ mod tests {
+             std::fs::write(staged, [0u8; 64]).unwrap();
+         }
+         let file = std::fs::File::options().write(true).open(&left).unwrap();
+-        file.set_modified(std::time::SystemTime::now() - 2 * STALE_STAGING)
++        file.set_modified(web_time::SystemTime::now() - 2 * STALE_STAGING)
+             .unwrap();
+         write_sidecar(&path, &sample(48_000, 1, vec![0.5; 10]), MAX_DECODED_BYTES);
+         assert!(path.exists());
+diff --git a/crates/runtime/src/samples/facts.rs b/crates/runtime/src/samples/facts.rs
+index be690dc..be8edb5 100644
+--- a/crates/runtime/src/samples/facts.rs
++++ b/crates/runtime/src/samples/facts.rs
+@@ -444,3 +444,6 @@ mod tests {
+         assert_eq!(facts.sound, None);
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++use crate::BrowserFileUrl;
+diff --git a/crates/runtime/src/samples/loading.rs b/crates/runtime/src/samples/loading.rs
+index 364668e..9520cb8 100644
+--- a/crates/runtime/src/samples/loading.rs
++++ b/crates/runtime/src/samples/loading.rs
+@@ -1194,7 +1194,7 @@ impl SampleLibrary {
+     /// Block until every url this library has started loading is settled or
+     /// the deadline passes. Prefetch/offline convenience; the live path
+     /// never waits.
+-    pub fn wait_until_idle(&self, deadline: std::time::Duration) {
++    pub fn wait_until_idle(&self, deadline: web_time::Duration) {
+         self.wait_until_idle_cancellable(deadline, || false);
+     }
+ 
+@@ -1203,10 +1203,10 @@ impl SampleLibrary {
+     /// background loaders available to the host.
+     pub(crate) fn wait_until_idle_cancellable(
+         &self,
+-        deadline: std::time::Duration,
++        deadline: web_time::Duration,
+         stop: impl Fn() -> bool,
+     ) {
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         // A plugin a score named loads on the plugin thread. The wait has
+         // the same deadline and the same stop as the samples.
+         #[cfg(feature = "vst")]
+@@ -1240,7 +1240,7 @@ impl SampleLibrary {
+             }
+             #[cfg(test)]
+             wait_tests::entering_wait();
+-            std::thread::sleep(std::time::Duration::from_millis(25));
++            std::thread::sleep(web_time::Duration::from_millis(25));
+         }
+     }
+ }
+diff --git a/crates/runtime/src/samples/manifests.rs b/crates/runtime/src/samples/manifests.rs
+index a859202..7289ab3 100644
+--- a/crates/runtime/src/samples/manifests.rs
++++ b/crates/runtime/src/samples/manifests.rs
+@@ -2107,8 +2107,8 @@ pub(super) mod tests {
+         ) -> (String, String, std::thread::JoinHandle<()>) {
+             let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
+             let origin = format!("http://{}", listener.local_addr().expect("address"));
+-            let unique = std::time::SystemTime::now()
+-                .duration_since(std::time::UNIX_EPOCH)
++            let unique = web_time::SystemTime::now()
++                .duration_since(web_time::UNIX_EPOCH)
+                 .unwrap_or_default()
+                 .as_nanos();
+             let spec = format!("{origin}/retry-{}-{unique}.json", std::process::id());
+@@ -4168,8 +4168,8 @@ pub(super) mod tests {
+         ) -> (String, mpsc::Receiver<()>, std::thread::JoinHandle<()>) {
+             static NEXT: AtomicUsize = AtomicUsize::new(0);
+             let listener = TcpListener::bind("127.0.0.1:0").expect("bind server");
+-            let unique_time = std::time::SystemTime::now()
+-                .duration_since(std::time::UNIX_EPOCH)
++            let unique_time = web_time::SystemTime::now()
++                .duration_since(web_time::UNIX_EPOCH)
+                 .unwrap_or_default()
+                 .as_nanos();
+             let url = format!(
+@@ -4203,8 +4203,8 @@ pub(super) mod tests {
+             // ephemeral port. Include wall time as well as the process-local
+             // counter: a self-hosted runner may reuse both PIDs and ports across
+             // jobs, while the fixture must always exercise its server.
+-            let unique_time = std::time::SystemTime::now()
+-                .duration_since(std::time::UNIX_EPOCH)
++            let unique_time = web_time::SystemTime::now()
++                .duration_since(web_time::UNIX_EPOCH)
+                 .unwrap_or_default()
+                 .as_nanos();
+             let url = format!(
+@@ -4697,8 +4697,8 @@ pub(super) mod tests {
+             // The trusted audio cache persists across self-hosted CI jobs. A bare
+             // ephemeral-port URL can therefore consume stale invalid bytes and
+             // skip this fixture server entirely when the OS reuses the port.
+-            let unique_time = std::time::SystemTime::now()
+-                .duration_since(std::time::UNIX_EPOCH)
++            let unique_time = web_time::SystemTime::now()
++                .duration_since(web_time::UNIX_EPOCH)
+                 .unwrap_or_default()
+                 .as_nanos();
+             let sample_url = format!(
+@@ -5526,3 +5526,6 @@ pub(super) mod tests {
+         }
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++use crate::BrowserFileUrl;
+diff --git a/crates/runtime/src/score_check.rs b/crates/runtime/src/score_check.rs
+index e634507..1717a42 100644
+--- a/crates/runtime/src/score_check.rs
++++ b/crates/runtime/src/score_check.rs
+@@ -13,7 +13,7 @@
+ //! recovery so both agree with it.
+ 
+ use std::sync::atomic::{AtomicBool, Ordering};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use rustel_fraction::Fraction;
+ 
+diff --git a/crates/runtime/src/score_import.rs b/crates/runtime/src/score_import.rs
+index 4172221..c790bc8 100644
+--- a/crates/runtime/src/score_import.rs
++++ b/crates/runtime/src/score_import.rs
+@@ -6,7 +6,7 @@
+ 
+ use std::sync::Arc;
+ use std::sync::atomic::AtomicBool;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use url::Url;
+ 
+@@ -380,3 +380,6 @@ mod tests {
+         assert!(get("/big").unwrap_err().contains("larger than"));
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++use crate::BrowserFileUrl;
+diff --git a/crates/runtime/src/serial_bridge.rs b/crates/runtime/src/serial_bridge.rs
+index eec9521..ed71605 100644
+--- a/crates/runtime/src/serial_bridge.rs
++++ b/crates/runtime/src/serial_bridge.rs
+@@ -15,7 +15,7 @@ later version.
+ 
+ use std::collections::{HashMap, HashSet, VecDeque};
+ use std::sync::{Arc, Mutex};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_serial::{Field, SerialSender};
+ 
+@@ -1124,7 +1124,7 @@ mod tests {
+         let mut outputs = SerialOutputs::with_opener(std::sync::Arc::new(|port, _baud| {
+             Err(format!("could not open serial port \"{port}\": not there"))
+         }));
+-        let due = std::time::Instant::now();
++        let due = web_time::Instant::now();
+         // The open runs on the port's own thread, so the onset that asked for
+         // the port only buffers; the refusal is the thread's to discover and
+         // `poll`'s to deliver, one tick late.
+@@ -1185,8 +1185,8 @@ mod tests {
+             let shut = lock.lock().unwrap_or_else(|error| error.into_inner());
+             // Bounded, so a test that fails with the gate shut strands nothing
+             // for long.
+-            drop(opened.wait_timeout_while(shut, std::time::Duration::from_secs(10), |shut| *shut));
+-            std::thread::sleep(std::time::Duration::from_millis(20));
++            drop(opened.wait_timeout_while(shut, web_time::Duration::from_secs(10), |shut| *shut));
++            std::thread::sleep(web_time::Duration::from_millis(20));
+             self.held.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+         }
+     }
+@@ -1239,7 +1239,7 @@ mod tests {
+                 release_rx
+                     .lock()
+                     .unwrap_or_else(|error| error.into_inner())
+-                    .recv_timeout(std::time::Duration::from_secs(10))
++                    .recv_timeout(web_time::Duration::from_secs(10))
+                     .map_err(|_| "test opener was not released".to_string())??;
+                 held.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                 Ok(SerialSender::with_port(
+@@ -1295,7 +1295,7 @@ mod tests {
+         /// Wait until an open is inside the stand-in driver, and name its port.
+         fn wait_entered(&self) -> String {
+             self.entered
+-                .recv_timeout(std::time::Duration::from_secs(5))
++                .recv_timeout(web_time::Duration::from_secs(5))
+                 .expect("no open ever reached the driver")
+         }
+ 
+@@ -1338,12 +1338,12 @@ mod tests {
+         let (mut outputs, driver) = gated_outputs();
+         // One due for both writes, on purpose: the sender's heap orders unequal
+         // dues by itself, so only a tie leaves the order to the flush.
+-        let due = std::time::Instant::now() + std::time::Duration::from_millis(300);
++        let due = web_time::Instant::now() + web_time::Duration::from_millis(300);
+         // The driver holds each open for up to ten seconds, so a producer call
+         // that waited on it could not finish inside this bound, however slow
+         // the runner.
+-        let bound = std::time::Duration::from_secs(5);
+-        let asked = std::time::Instant::now();
++        let bound = web_time::Duration::from_secs(5);
++        let asked = web_time::Instant::now();
+         let route = outputs
+             .sender("slow-open", 115_200, due, b"first()")
+             .expect("admission while the open is wedged");
+@@ -1353,7 +1353,7 @@ mod tests {
+         );
+         assert!(asked.elapsed() < bound, "waited {:?}", asked.elapsed());
+         assert_eq!(driver.wait_entered(), "slow-open");
+-        let asked = std::time::Instant::now();
++        let asked = web_time::Instant::now();
+         let route = outputs
+             .sender("slow-open", 115_200, due, b"second()")
+             .expect("second admission while the open is wedged");
+@@ -1393,7 +1393,7 @@ mod tests {
+     #[test]
+     fn a_wedged_open_buffers_only_a_bounded_number_of_writes() {
+         let (mut outputs, _driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         for index in 0..MAX_PENDING_SERIAL_WRITES_PER_PORT {
+             let route = outputs
+                 .sender("wedged", 115_200, due, b"x()")
+@@ -1440,7 +1440,7 @@ mod tests {
+         );
+         assert!(full_ports < MAX_SERIAL_OUTPUT_PORTS.min(MAX_SERIAL_OPENS_IN_FLIGHT));
+         let (mut outputs, _driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         for port in 0..full_ports {
+             let name = format!("wedged-{port}");
+             for _ in 0..MAX_PENDING_SERIAL_WRITES_PER_PORT {
+@@ -1488,7 +1488,7 @@ mod tests {
+                 port.to_string(),
+             ))
+         }));
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         let route = outputs
+             .sender("default", 115_200, due, b"x()")
+             .expect("admission while the lookup is wedged");
+@@ -1519,7 +1519,7 @@ mod tests {
+     #[test]
+     fn opens_in_flight_are_capped_and_a_finished_one_gives_its_place_back() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         // One set may name as many ports as there are places, so it fills them.
+         const { assert!(MAX_SERIAL_OPENS_IN_FLIGHT <= MAX_SERIAL_OUTPUT_PORTS) };
+         for port in 0..MAX_SERIAL_OPENS_IN_FLIGHT {
+@@ -1575,7 +1575,7 @@ mod tests {
+             },
+         ));
+         outputs
+-            .sender("fragile", 115_200, std::time::Instant::now(), b"x()")
++            .sender("fragile", 115_200, web_time::Instant::now(), b"x()")
+             .expect("admission");
+         let news = poll_until_reported(&mut outputs);
+         assert_eq!(news.len(), 1, "{news:?}");
+@@ -1593,21 +1593,20 @@ mod tests {
+     #[test]
+     fn a_port_still_opening_is_told_once_per_set() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         start_opening(&mut outputs, &driver, "stuck", 115_200, due, b"x()");
+         // The open's age is set by hand rather than slept out, both ways, so a
+         // slow runner cannot move it across the notice.
+-        let age = |outputs: &mut SerialOutputs, age: std::time::Duration| {
+-            outputs.in_flight.get_mut("stuck").expect("in flight").since =
+-                std::time::Instant::now()
+-                    .checked_sub(age)
+-                    .expect("a clock this close to its epoch");
++        let age = |outputs: &mut SerialOutputs, age: web_time::Duration| {
++            outputs.in_flight.get_mut("stuck").expect("in flight").since = web_time::Instant::now()
++                .checked_sub(age)
++                .expect("a clock this close to its epoch");
+         };
+-        age(&mut outputs, std::time::Duration::ZERO);
++        age(&mut outputs, web_time::Duration::ZERO);
+         assert!(outputs.poll().is_empty(), "told before the notice is due");
+         age(
+             &mut outputs,
+-            SERIAL_OPEN_STALL_NOTICE + std::time::Duration::from_secs(1),
++            SERIAL_OPEN_STALL_NOTICE + web_time::Duration::from_secs(1),
+         );
+         let news = outputs.poll();
+         assert_eq!(news.len(), 1, "{news:?}");
+@@ -1639,7 +1638,7 @@ mod tests {
+         let (mut outputs, driver) = gated_outputs();
+         // Both sets' writes due soon and together, so a held write of the old
+         // set that survived would reach the port beside the new one.
+-        let due = std::time::Instant::now() + std::time::Duration::from_millis(300);
++        let due = web_time::Instant::now() + web_time::Duration::from_millis(300);
+         start_opening(&mut outputs, &driver, "COM-SLOW", 9_600, due, b"old()");
+ 
+         outputs.begin_set();
+@@ -1670,7 +1669,7 @@ mod tests {
+     #[test]
+     fn an_adopted_open_at_another_baud_is_opened_again_once_it_finishes() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_millis(300);
++        let due = web_time::Instant::now() + web_time::Duration::from_millis(300);
+         start_opening(&mut outputs, &driver, "COM-SLOW", 9_600, due, b"old()");
+ 
+         outputs.begin_set();
+@@ -1719,7 +1718,7 @@ mod tests {
+     #[test]
+     fn an_adopted_open_that_fails_is_tried_again_for_the_new_set() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_millis(300);
++        let due = web_time::Instant::now() + web_time::Duration::from_millis(300);
+         start_opening(&mut outputs, &driver, "COM-BT", 115_200, due, b"old()");
+         outputs.begin_set();
+         let route = outputs
+@@ -1754,7 +1753,7 @@ mod tests {
+     #[test]
+     fn an_open_finishing_between_sets_is_adopted_or_forgotten() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         start_opening(&mut outputs, &driver, "COM-SLOW", 9_600, due, b"old()");
+         outputs.begin_set();
+         driver.release(Ok(()));
+@@ -1795,8 +1794,8 @@ mod tests {
+     #[test]
+     fn a_restart_takes_a_port_the_last_set_had_open_as_it_is() {
+         let (mut outputs, driver) = gated_outputs();
+-        let started = std::time::Instant::now();
+-        let far = started + std::time::Duration::from_secs(30);
++        let started = web_time::Instant::now();
++        let far = started + web_time::Duration::from_secs(30);
+         open_in_first_set(&mut outputs, &driver, "COM-OPEN", 9_600, far, b"");
+         let Route::Send(sender) = outputs
+             .sender("COM-OPEN", 9_600, far, b"")
+@@ -1807,12 +1806,12 @@ mod tests {
+         };
+         // The last set leaves a write queued for later, and one it was already
+         // too late for, which the sender counts as dropped late.
+-        let later = started + std::time::Duration::from_millis(700);
++        let later = started + web_time::Duration::from_millis(700);
+         assert!(sender.send_at(later, b"old-later()".to_vec()));
+         assert!(
+             sender.send_at(
+                 started
+-                    .checked_sub(std::time::Duration::from_secs(2))
++                    .checked_sub(web_time::Duration::from_secs(2))
+                     .expect("a clock this close to its epoch"),
+                 b"old-stale()".to_vec()
+             )
+@@ -1847,7 +1846,7 @@ mod tests {
+             panic!("the port is open");
+         };
+         assert!(sender.send_at(
+-            later + std::time::Duration::from_millis(100),
++            later + web_time::Duration::from_millis(100),
+             b"new()".to_vec()
+         ));
+         assert_eq!(driver.calls(), 1, "the port was opened a second time");
+@@ -1870,8 +1869,8 @@ mod tests {
+     #[test]
+     fn a_restart_at_another_baud_closes_the_open_port_before_opening_it_again() {
+         let (mut outputs, driver) = gated_outputs();
+-        let far = std::time::Instant::now() + std::time::Duration::from_secs(30);
+-        let due = std::time::Instant::now() + std::time::Duration::from_millis(300);
++        let far = web_time::Instant::now() + web_time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_millis(300);
+         open_in_first_set(&mut outputs, &driver, "COM-OPEN", 9_600, far, b"old()");
+ 
+         outputs.begin_set();
+@@ -1915,7 +1914,7 @@ mod tests {
+                 port.to_string(),
+             ))
+         }));
+-        let now = std::time::Instant::now();
++        let now = web_time::Instant::now();
+         outputs
+             .sender("COM-GONE", 9_600, now, b"")
+             .expect("the first set's admission");
+@@ -1927,7 +1926,7 @@ mod tests {
+         else {
+             panic!("the port is open");
+         };
+-        assert!(sender.send_at(std::time::Instant::now(), b"x()".to_vec()));
++        assert!(sender.send_at(web_time::Instant::now(), b"x()".to_vec()));
+         poll_until(&mut outputs, |outputs| outputs.report().write_errors > 0);
+ 
+         outputs.begin_set();
+@@ -1950,15 +1949,15 @@ mod tests {
+     #[test]
+     fn an_old_handle_is_closed_off_the_producer() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         open_in_first_set(&mut outputs, &driver, "COM-OPEN", 9_600, due, b"x()");
+         start_opening(&mut outputs, &driver, "COM-OPENING", 9_600, due, b"x()");
+ 
+         driver.shut_drops(true);
+         outputs.begin_set();
+         // A port held for ten seconds is unmistakable next to this bound.
+-        let bound = std::time::Duration::from_secs(5);
+-        let asked = std::time::Instant::now();
++        let bound = web_time::Duration::from_secs(5);
++        let asked = web_time::Instant::now();
+         let route = outputs
+             .sender("COM-OPEN", 115_200, due, b"y()")
+             .expect("the new set's admission");
+@@ -1973,7 +1972,7 @@ mod tests {
+             .expect("the new set's admission");
+         driver.release(Ok(()));
+         let reopened = wait_until(|| {
+-            let asked = std::time::Instant::now();
++            let asked = web_time::Instant::now();
+             outputs.poll();
+             assert!(
+                 asked.elapsed() < bound,
+@@ -1987,7 +1986,7 @@ mod tests {
+         });
+         assert!(reopened, "the finished open was never opened again");
+         // Both new opens have started and wait for their old handles.
+-        std::thread::sleep(std::time::Duration::from_millis(100));
++        std::thread::sleep(web_time::Duration::from_millis(100));
+         assert_eq!(
+             driver.calls(),
+             2,
+@@ -2095,7 +2094,7 @@ mod tests {
+     #[test]
+     fn port_name_and_port_count_caps_are_enforced() {
+         let mut outputs = SerialOutputs::new();
+-        let due = std::time::Instant::now();
++        let due = web_time::Instant::now();
+         match outputs.sender(
+             &"p".repeat(MAX_SERIAL_PORT_NAME_BYTES + 1),
+             115_200,
+@@ -2135,7 +2134,7 @@ mod tests {
+         });
+ 
+         let route = outputs
+-            .sender("COM-TEST", 9_600, std::time::Instant::now(), b"")
++            .sender("COM-TEST", 9_600, web_time::Instant::now(), b"")
+             .expect("a mismatch is a note, not a refusal");
+         let note = route.note.expect("the mismatch is reported");
+         assert!(note.contains("already open at 115200 baud"), "{note}");
+@@ -2145,7 +2144,7 @@ mod tests {
+         };
+         // The route is the port already open, so the write goes out at its baud.
+         assert_eq!(sender.port_name(), "COM-TEST");
+-        assert!(sender.send_at(std::time::Instant::now(), b"hit(drum:1)".to_vec()));
++        assert!(sender.send_at(web_time::Instant::now(), b"hit(drum:1)".to_vec()));
+ 
+         // The write reaches the port's queue even though the baud could not
+         // change. How the worker then delivers it is rustel-serial's to test: a
+@@ -2165,19 +2164,19 @@ mod tests {
+ 
+         // Once per requested baud, not once per onset.
+         let route = outputs
+-            .sender("COM-TEST", 9_600, std::time::Instant::now(), b"")
++            .sender("COM-TEST", 9_600, web_time::Instant::now(), b"")
+             .unwrap();
+         assert!(route.note.is_none(), "the note repeated");
+         assert!(matches!(route.to, Route::Send(_)));
+         // The open baud itself is never a mismatch.
+         let route = outputs
+-            .sender("COM-TEST", 115_200, std::time::Instant::now(), b"")
++            .sender("COM-TEST", 115_200, web_time::Instant::now(), b"")
+             .unwrap();
+         assert!(route.note.is_none());
+         assert!(matches!(route.to, Route::Send(_)));
+         // A second distinct wrong baud gets its own single note.
+         let route = outputs
+-            .sender("COM-TEST", 4_800, std::time::Instant::now(), b"")
++            .sender("COM-TEST", 4_800, web_time::Instant::now(), b"")
+             .unwrap();
+         assert!(route.note.expect("a new baud is news").contains("4800"));
+         assert!(matches!(route.to, Route::Send(_)));
+@@ -2188,7 +2187,7 @@ mod tests {
+     #[test]
+     fn a_baud_mismatch_is_noted_while_opening_and_not_once_failed() {
+         let (mut outputs, driver) = gated_outputs();
+-        let due = std::time::Instant::now() + std::time::Duration::from_secs(30);
++        let due = web_time::Instant::now() + web_time::Duration::from_secs(30);
+         start_opening(&mut outputs, &driver, "COM-SLOW", 115_200, due, b"x()");
+         let route = outputs
+             .sender("COM-SLOW", 9_600, due, b"y()")
+@@ -2234,7 +2233,7 @@ mod tests {
+                 .sender(
+                     "COM-CAP",
+                     (offset + 1) as u32,
+-                    std::time::Instant::now(),
++                    web_time::Instant::now(),
+                     b"",
+                 )
+                 .expect("a mismatch is never a refusal");
+@@ -2242,16 +2241,16 @@ mod tests {
+             assert!(matches!(route.to, Route::Send(_)));
+         }
+         let route = outputs
+-            .sender("COM-CAP", 999_999, std::time::Instant::now(), b"")
++            .sender("COM-CAP", 999_999, web_time::Instant::now(), b"")
+             .unwrap();
+         assert!(route.note.is_none(), "the cap did not stop the notes");
+         let Route::Send(sender) = route.to else {
+             panic!("the cap must not stop the writes");
+         };
+-        assert!(sender.send_at(std::time::Instant::now(), b"go()".to_vec()));
++        assert!(sender.send_at(web_time::Instant::now(), b"go()".to_vec()));
+         // The other port's first mismatch is still news.
+         let route = outputs
+-            .sender("COM-OTHER", 9_600, std::time::Instant::now(), b"")
++            .sender("COM-OTHER", 9_600, web_time::Instant::now(), b"")
+             .unwrap();
+         assert!(route.note.is_some(), "one port's notes used up another's");
+     }
+diff --git a/crates/runtime/src/session.rs b/crates/runtime/src/session.rs
+index 4e67312..218cf45 100644
+--- a/crates/runtime/src/session.rs
++++ b/crates/runtime/src/session.rs
+@@ -39,8 +39,8 @@ use std::sync::Arc;
+ #[cfg(feature = "vst")]
+ use std::sync::Mutex;
+ use std::sync::atomic::AtomicBool;
+-use std::time::Duration;
+-use std::time::Instant;
++use web_time::Duration;
++use web_time::Instant;
+ 
+ use rustel_audio::TakeoverCut;
+ use rustel_core::host_value::Pointer;
+diff --git a/crates/runtime/src/session/assets.rs b/crates/runtime/src/session/assets.rs
+index 2acd0f6..a906eac 100644
+--- a/crates/runtime/src/session/assets.rs
++++ b/crates/runtime/src/session/assets.rs
+@@ -317,7 +317,7 @@ impl Session {
+     /// `cycles`, then wait (bounded) for the library to settle. Called once
+     /// before the live transport starts so the first bar is not missing its
+     /// drums; NEVER called during a running set (loads stay async there).
+-    pub fn prefetch_samples(&mut self, cycles: f64, deadline: std::time::Duration) {
++    pub fn prefetch_samples(&mut self, cycles: f64, deadline: web_time::Duration) {
+         let started = Instant::now();
+         self.kick_sample_loads(cycles);
+         if let Some(library) = self.samples.clone() {
+@@ -700,14 +700,14 @@ mod tests {
+             let (_, warmed) = session.warm_live_samples_checked(
+                 &["three".to_owned()],
+                 0.0,
+-                std::time::Duration::from_millis(50),
++                web_time::Duration::from_millis(50),
+             );
+             let elapsed = started.elapsed();
+             drop(hold);
+ 
+             warmed.expect("a warm-up waits in line too");
+             assert!(
+-                elapsed < std::time::Duration::from_secs(1),
++                elapsed < web_time::Duration::from_secs(1),
+                 "an update waited on the loader: {elapsed:?}"
+             );
+             let diagnostics = session.take_diagnostics();
+@@ -721,7 +721,7 @@ mod tests {
+                 .join()
+                 .expect("the blocking registrant")
+                 .expect("its map lands");
+-            library.wait_until_idle(std::time::Duration::from_secs(15));
++            library.wait_until_idle(web_time::Duration::from_secs(15));
+             for name in names.into_iter().chain(["blocked"]) {
+                 assert!(library.knows(name), "{name}");
+             }
+@@ -742,14 +742,14 @@ mod tests {
+                 let stop = Arc::clone(&stop);
+                 move || {
+                     entered
+-                        .recv_timeout(std::time::Duration::from_secs(5))
++                        .recv_timeout(web_time::Duration::from_secs(5))
+                         .expect("the wait started");
+                     stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                 }
+             });
+             let started = Instant::now();
+             let (_, timed_out) = session
+-                .wait_for_sample_loads_until(std::time::Duration::from_secs(30), || {
++                .wait_for_sample_loads_until(web_time::Duration::from_secs(30), || {
+                     stop.load(std::sync::atomic::Ordering::Relaxed)
+                 });
+             let elapsed = started.elapsed();
+@@ -758,7 +758,7 @@ mod tests {
+             stopper.join().expect("the stopper");
+             assert!(!timed_out);
+             assert!(
+-                elapsed < std::time::Duration::from_secs(5),
++                elapsed < web_time::Duration::from_secs(5),
+                 "the wait ran on after its stop: {elapsed:?}"
+             );
+             assert!(
+@@ -792,7 +792,7 @@ mod tests {
+             .evaluate(r#"stack(note("c d e f").fast(16).s("sawtooth"), s("hh*16 one"))"#)
+             .expect("the score installs");
+ 
+-        let window = session.kick_sample_loads_within(0.0, 4.0, std::time::Duration::from_secs(5));
++        let window = session.kick_sample_loads_within(0.0, 4.0, web_time::Duration::from_secs(5));
+ 
+         assert_eq!(
+             window,
+diff --git a/crates/runtime/src/session/confirmation.rs b/crates/runtime/src/session/confirmation.rs
+index 7138093..0d3fbb3 100644
+--- a/crates/runtime/src/session/confirmation.rs
++++ b/crates/runtime/src/session/confirmation.rs
+@@ -409,7 +409,7 @@ impl Session {
+ mod tests {
+     use std::sync::Arc;
+     use std::sync::atomic::{AtomicUsize, Ordering};
+-    use std::time::Duration;
++    use web_time::Duration;
+ 
+     use rustel_audio::device::ManualLiveOutput;
+     use rustel_core::compose::Alignment;
+diff --git a/crates/runtime/src/session/diagnostics.rs b/crates/runtime/src/session/diagnostics.rs
+index 9d092ef..ca8b1b2 100644
+--- a/crates/runtime/src/session/diagnostics.rs
++++ b/crates/runtime/src/session/diagnostics.rs
+@@ -158,7 +158,7 @@ mod tests {
+ 
+         use super::*;
+         use crate::session::test_support::{quiet_session, warnings};
+-        use std::time::Duration;
++        use web_time::Duration;
+ 
+         const RATE: u32 = 48_000;
+ 
+diff --git a/crates/runtime/src/session/evaluation.rs b/crates/runtime/src/session/evaluation.rs
+index 9dc7ed0..3de709c 100644
+--- a/crates/runtime/src/session/evaluation.rs
++++ b/crates/runtime/src/session/evaluation.rs
+@@ -73,7 +73,7 @@ impl Session {
+     pub(super) fn evaluate_prebake_guarded(
+         &mut self,
+         source: &str,
+-        budget: std::time::Duration,
++        budget: web_time::Duration,
+         cancellation: Option<&std::sync::atomic::AtomicBool>,
+         expected_error: Option<&str>,
+     ) -> Result<(), RuntimeError> {
+@@ -277,7 +277,7 @@ impl Session {
+         &mut self,
+         source: &str,
+         now: f64,
+-        continuation_reserve: std::time::Duration,
++        continuation_reserve: web_time::Duration,
+         cancellation: &std::sync::atomic::AtomicBool,
+     ) -> Result<LivePrebakeAttempt, RuntimeError> {
+         let Some(budget) = self.live_prebake_budget_at(now, continuation_reserve)? else {
+@@ -295,8 +295,8 @@ impl Session {
+     pub(super) fn live_prebake_budget_at(
+         &self,
+         now: f64,
+-        continuation_reserve: std::time::Duration,
+-    ) -> Result<Option<std::time::Duration>, RuntimeError> {
++        continuation_reserve: web_time::Duration,
++    ) -> Result<Option<web_time::Duration>, RuntimeError> {
+         if !now.is_finite() || now < 0.0 {
+             return Err(RuntimeError::Message(format!(
+                 "live setup clock must be a finite non-negative number, got {now}"
+@@ -1666,7 +1666,7 @@ impl Session {
+         // share and the identical score ran when installed as the first
+         // generation. Keep the probe bounded, but judge it by the same
+         // tempo-aware budget as the throughput check below.
+-        let ceiling = std::time::Instant::now() + Self::live_replacement_probe_budget(realtime_cps);
++        let ceiling = web_time::Instant::now() + Self::live_replacement_probe_budget(realtime_cps);
+         let query_started = Instant::now();
+         // A RESOURCE refusal on one probed cycle means the score cannot be
+         // scheduled live at all: accepting it made the producer spin on an
+@@ -2970,8 +2970,8 @@ mod tests {
+         assert!((play.onsets[0].duration_secs - 0.25).abs() < 1e-9);
+         assert!((play.onsets[1].duration_secs - 0.25).abs() < 1e-9);
+ 
+-        let unique = std::time::SystemTime::now()
+-            .duration_since(std::time::UNIX_EPOCH)
++        let unique = web_time::SystemTime::now()
++            .duration_since(web_time::UNIX_EPOCH)
+             .expect("system clock")
+             .as_nanos();
+         let output = std::env::temp_dir().join(format!(
+@@ -4085,7 +4085,7 @@ endin`";
+         let mut session = Session::new().expect("session");
+         session.evaluate("note('c4')").expect("score");
+         session.schedule_at(0.0).expect("fill horizon");
+-        let reserve = std::time::Duration::from_millis(1);
++        let reserve = web_time::Duration::from_millis(1);
+         let transport = session.transport();
+         let deferred = session
+             .evaluate_live_prebake_cancellable(
+@@ -4225,8 +4225,8 @@ endin`";
+                 .is_empty()
+         );
+ 
+-        let unique = std::time::SystemTime::now()
+-            .duration_since(std::time::UNIX_EPOCH)
++        let unique = web_time::SystemTime::now()
++            .duration_since(web_time::UNIX_EPOCH)
+             .expect("system clock")
+             .as_nanos();
+         let output = std::env::temp_dir().join(format!(
+diff --git a/crates/runtime/src/session/handover.rs b/crates/runtime/src/session/handover.rs
+index d741b85..8267a99 100644
+--- a/crates/runtime/src/session/handover.rs
++++ b/crates/runtime/src/session/handover.rs
+@@ -859,7 +859,7 @@ mod tests {
+ 
+     /// The ledger at work in the session's live conversion.
+     mod conversion {
+-        use std::time::Duration;
++        use web_time::Duration;
+ 
+         use super::super::super::{
+             LiveAudioBatch, LiveAudioScheduleError, Session, SessionConfig, SessionPanicPoint,
+diff --git a/crates/runtime/src/session/installation.rs b/crates/runtime/src/session/installation.rs
+index 653aa92..9004efd 100644
+--- a/crates/runtime/src/session/installation.rs
++++ b/crates/runtime/src/session/installation.rs
+@@ -1666,7 +1666,7 @@ mod tests {
+         let Ok(_) = session.schedule_audio_live_at(
+             10.0,
+             44_100,
+-            std::time::Duration::ZERO,
++            web_time::Duration::ZERO,
+             LiveQueryBudgetMode::InitialPrefill,
+         ) else {
+             panic!("prefill schedule failed");
+@@ -1679,7 +1679,7 @@ mod tests {
+         let Ok(batch) = session.schedule_audio_live_at(
+             11.3,
+             44_100,
+-            std::time::Duration::ZERO,
++            web_time::Duration::ZERO,
+             LiveQueryBudgetMode::ReplacementPrefill,
+         ) else {
+             panic!("requery schedule failed");
+@@ -1713,7 +1713,7 @@ mod tests {
+             let Ok(_) = session.schedule_audio_live_at(
+                 11.4,
+                 44_100,
+-                std::time::Duration::ZERO,
++                web_time::Duration::ZERO,
+                 LiveQueryBudgetMode::Steady,
+             ) else {
+                 panic!("steady schedule failed");
+@@ -1760,7 +1760,7 @@ mod tests {
+         let Ok(batch) = session.schedule_audio_live_at(
+             11.0,
+             44_100,
+-            std::time::Duration::ZERO,
++            web_time::Duration::ZERO,
+             LiveQueryBudgetMode::ReplacementPrefill,
+         ) else {
+             panic!("requery schedule failed");
+@@ -1802,7 +1802,7 @@ mod tests {
+             let batch = match session.schedule_audio_live_at(
+                 10.0,
+                 44_100,
+-                std::time::Duration::ZERO,
++                web_time::Duration::ZERO,
+                 LiveQueryBudgetMode::InitialPrefill,
+             ) {
+                 Ok(batch) => batch,
+@@ -1836,7 +1836,7 @@ mod tests {
+             let Ok(batch) = session.schedule_audio_live_at(
+                 10.0,
+                 44_100,
+-                std::time::Duration::from_millis(25),
++                web_time::Duration::from_millis(25),
+                 LiveQueryBudgetMode::ReplacementPrefill,
+             ) else {
+                 panic!("requery schedule failed");
+diff --git a/crates/runtime/src/session/playback.rs b/crates/runtime/src/session/playback.rs
+index fb89e62..a952e6e 100644
+--- a/crates/runtime/src/session/playback.rs
++++ b/crates/runtime/src/session/playback.rs
+@@ -462,7 +462,7 @@ impl Session {
+                             library.as_ref(),
+                         );
+                     }
+-                    library.wait_until_idle(std::time::Duration::from_secs(120));
++                    library.wait_until_idle(web_time::Duration::from_secs(120));
+                 }
+                 let lookup = crate::csound::Lookup {
+                     samples: self.sample_lookup(),
+@@ -879,7 +879,7 @@ impl Session {
+         self.stems_export = stems;
+     }
+ 
+-    pub fn stop_export_when_silent(&mut self, floor: f32, hold: std::time::Duration) {
++    pub fn stop_export_when_silent(&mut self, floor: f32, hold: web_time::Duration) {
+         self.stop_when_silent = Some(rustel_audio::SilenceStop {
+             floor,
+             hold_frames: (hold.as_secs_f64() * f64::from(self.config.sample_rate)).round() as usize,
+@@ -1744,7 +1744,7 @@ mod tests {
+             scope.spawn(|| {
+                 while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                     transport.stop();
+-                    std::thread::sleep(std::time::Duration::from_millis(1));
++                    std::thread::sleep(web_time::Duration::from_millis(1));
+                 }
+             });
+             // A panic in `run` still ends the stopper, so the scope joins.
+@@ -1768,7 +1768,7 @@ mod tests {
+ 
+         let mut session = Session::new().expect("session");
+         session.evaluate(r#"s("bd*8")"#).expect("evaluate");
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         let cancelled = while_stopping(&session.transport(), || {
+             session.play(86_400.0).expect("play").onsets.len()
+         });
+@@ -1780,7 +1780,7 @@ mod tests {
+              uncancelled. Stop must discard queued events, not drain them."
+         );
+         assert!(
+-            elapsed < std::time::Duration::from_secs(60),
++            elapsed < web_time::Duration::from_secs(60),
+             "the cancelled run took {elapsed:?}; Stop must end it promptly"
+         );
+ 
+@@ -1813,7 +1813,7 @@ mod tests {
+         // loop's iteration count and elapsed time, not only the onset count.
+         let mut session = Session::new().expect("session");
+         session.evaluate(r#"s("bd*8")"#).expect("evaluate");
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         let full = session.play(86_400.0).expect("play").onsets.len();
+         let full_elapsed = started.elapsed();
+         let full_iterations = session.last_play_iterations;
+@@ -1831,7 +1831,7 @@ mod tests {
+         session.evaluate(r#"s("bd*8")"#).expect("evaluate");
+         session.transport().stop();
+         // `play` restarts the transport, so stop from a handle DURING the run.
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         let cancelled = while_stopping(&session.transport(), || {
+             session.play(86_400.0).expect("play").onsets.len()
+         });
+@@ -2275,17 +2275,17 @@ mod plugin_render_tests {
+         let stop_after = |session: &Session, when: Box<dyn Fn() -> bool + Send>| {
+             let transport = session.transport();
+             std::thread::spawn(move || {
+-                let start = std::time::Instant::now();
++                let start = web_time::Instant::now();
+                 while !when() && start.elapsed() < Duration::from_secs(20) {
+                     std::thread::sleep(Duration::from_millis(5));
+                 }
+                 transport.stop();
+-                std::time::Instant::now()
++                web_time::Instant::now()
+             })
+         };
+         let soon = Duration::from_millis(300);
+         let mut session = plugin_session(&delayed(DRY));
+-        let start = std::time::Instant::now();
++        let start = web_time::Instant::now();
+         let stopper = stop_after(
+             &session,
+             Box::new(move || start.elapsed() >= Duration::from_millis(100)),
+@@ -2350,7 +2350,7 @@ mod plugin_render_tests {
+         let finisher = std::thread::spawn(move || {
+             std::thread::sleep(Duration::from_millis(100));
+             flag.store(true, std::sync::atomic::Ordering::Relaxed);
+-            std::time::Instant::now()
++            web_time::Instant::now()
+         });
+         let target = directory.path().join("finished.wav");
+         let finished = session.render_controlled(
+diff --git a/crates/runtime/src/session_log.rs b/crates/runtime/src/session_log.rs
+index e79045f..fda0428 100644
+--- a/crates/runtime/src/session_log.rs
++++ b/crates/runtime/src/session_log.rs
+@@ -664,8 +664,8 @@ impl SessionScript {
+ 
+ /// Seconds since the Unix epoch, or zero before it.
+ pub fn unix_now() -> i64 {
+-    std::time::SystemTime::now()
+-        .duration_since(std::time::UNIX_EPOCH)
++    web_time::SystemTime::now()
++        .duration_since(web_time::UNIX_EPOCH)
+         .map(|since| since.as_secs() as i64)
+         .unwrap_or(0)
+ }
+diff --git a/crates/runtime/src/ui_events.rs b/crates/runtime/src/ui_events.rs
+index 5ea9eec..d2236b9 100644
+--- a/crates/runtime/src/ui_events.rs
++++ b/crates/runtime/src/ui_events.rs
+@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+ use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
+ use std::sync::{Arc, Mutex, TryLockError};
+ use std::thread::{self, JoinHandle};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use crate::ui_analysis::{
+     UI_SCOPE_SAMPLES, UI_SPECTRUM_BINS, UiAudioAnalysisFrame, UiAudioAnalysisSet,
+@@ -2170,16 +2170,16 @@ impl UiEventSink {
+     /// pipe never blocks shutdown. Returns true when the writer ends within
+     /// `grace` without a panic. A writer that still runs at the deadline is
+     /// left detached to end on its own.
+-    pub fn finish_timeout(mut self, grace: std::time::Duration) -> bool {
++    pub fn finish_timeout(mut self, grace: web_time::Duration) -> bool {
+         drop(self.sender.take());
+-        let deadline = std::time::Instant::now() + grace;
++        let deadline = web_time::Instant::now() + grace;
+         while self.writer_alive.load(Ordering::Acquire) {
+-            if std::time::Instant::now() >= deadline {
++            if web_time::Instant::now() >= deadline {
+                 // Detach: dropping the handle lets the thread finish in the
+                 // background; the process must not wait behind a blocked pipe.
+                 return false;
+             }
+-            std::thread::sleep(std::time::Duration::from_millis(2));
++            std::thread::sleep(web_time::Duration::from_millis(2));
+         }
+         match self.worker.take() {
+             Some(worker) => worker.join().is_ok(),
+@@ -2382,7 +2382,7 @@ mod tests {
+     use super::*;
+     use rustel_fraction::Fraction;
+     use std::sync::{Condvar, Mutex};
+-    use std::time::Duration;
++    use web_time::Duration;
+ 
+     #[derive(Clone, Default)]
+     struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+@@ -3756,13 +3756,13 @@ unknown(slider(440, 20, 20000));"#;
+             .recv_timeout(Duration::from_secs(1))
+             .expect("writer did not attempt output");
+ 
+-        let deadline = std::time::Instant::now() + Duration::from_secs(1);
++        let deadline = web_time::Instant::now() + Duration::from_secs(1);
+         loop {
+             if sink.try_send_audio(audio()) == UiEventSendStatus::Disconnected {
+                 break;
+             }
+             assert!(
+-                std::time::Instant::now() < deadline,
++                web_time::Instant::now() < deadline,
+                 "audio slot stayed connected after writer failure"
+             );
+             std::thread::yield_now();
+@@ -3777,7 +3777,7 @@ unknown(slider(440, 20, 20000));"#;
+         assert_eq!(sink.try_send(envelope()), UiEventSendStatus::Queued);
+ 
+         let grace = Duration::from_secs(5);
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         assert!(
+             !sink.finish_timeout(grace),
+             "a panicked writer counted as finished"
+diff --git a/crates/runtime/src/updates.rs b/crates/runtime/src/updates.rs
+index bbc0a4b..871e2f0 100644
+--- a/crates/runtime/src/updates.rs
++++ b/crates/runtime/src/updates.rs
+@@ -3,7 +3,7 @@
+ use std::fs::OpenOptions;
+ use std::io::{self, Read};
+ use std::path::Path;
+-use std::time::{Duration, SystemTime, UNIX_EPOCH};
++use web_time::{Duration, SystemTime, UNIX_EPOCH};
+ 
+ use semver::Version;
+ use serde::{Deserialize, Serialize, de::DeserializeOwned};
+diff --git a/crates/runtime/src/video.rs b/crates/runtime/src/video.rs
+index a3961e3..aa9dd69 100644
+--- a/crates/runtime/src/video.rs
++++ b/crates/runtime/src/video.rs
+@@ -18,7 +18,7 @@ use std::cmp::Reverse;
+ use std::collections::{BinaryHeap, HashMap, HashSet};
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicBool, Ordering};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use symphonia::core::formats::FormatOptions;
+ use symphonia::core::io::MediaSourceStream;
+diff --git a/crates/runtime/src/vst.rs b/crates/runtime/src/vst.rs
+index 5b85bd4..1e66ffa 100644
+--- a/crates/runtime/src/vst.rs
++++ b/crates/runtime/src/vst.rs
+@@ -22,7 +22,7 @@ pub(crate) use lanes::LaneTable;
+ 
+ use std::path::PathBuf;
+ use std::sync::{Mutex, OnceLock};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use rustel_audio::InsertControls;
+ pub use rustel_vst3::{
+diff --git a/crates/runtime/src/watch.rs b/crates/runtime/src/watch.rs
+index e30ef7d..d1a77bb 100644
+--- a/crates/runtime/src/watch.rs
++++ b/crates/runtime/src/watch.rs
+@@ -10,7 +10,7 @@
+ use std::fs::File;
+ use std::io::Read;
+ use std::path::{Path, PathBuf};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use crate::Session;
+ 
 diff --git a/crates/scheduler/Cargo.toml b/crates/scheduler/Cargo.toml
 index e6312a9..338978f 100644
 --- a/crates/scheduler/Cargo.toml
@@ -315,6 +1895,2420 @@ index d85a150..1394425 100644
          let mut queue_full = false;
          // Earliest onset the cap left unqueued; the cursor stops there.
          let mut unprocessed_begin: Option<Fraction> = None;
+diff --git a/crates/studio/Cargo.toml b/crates/studio/Cargo.toml
+index 85d6c27..93b2994 100644
+--- a/crates/studio/Cargo.toml
++++ b/crates/studio/Cargo.toml
+@@ -36,6 +36,7 @@ remote-control = ["dep:getrandom"]
+ harness = ["rustel-runtime/test-support"]
+ 
+ [dependencies]
++web-time = "1"
+ # Every studio plays live, lists MIDI ports so a score can name one without
+ # leaving the editor, and records its set.
+ rustel-runtime = { path = "../runtime", default-features = false, features = [
+@@ -70,7 +71,6 @@ winit = { version = "0.30", optional = true }
+ softbuffer = { version = "0.4", optional = true }
+ # The terminal studio is intentionally a Rust-only surface. Ratatui shares the
+ # exact Crossterm 0.29 event types used for enhanced-keyboard negotiation.
+-arboard = { version = "3.6", default-features = false }
+ crossterm = "0.29"
+ # zlib for the kitty graphics protocol: a frame of pixels is a few hundred
+ # kilobytes raw and a few tens compressed, forty times a second.
+@@ -86,6 +86,9 @@ regex = "1"
+ unicode-segmentation = "1.12"
+ unicode-width = "0.2"
+ 
++[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++arboard = { version = "3.6", default-features = false }
++
+ [target.'cfg(unix)'.dependencies]
+ # Terminal polling and size, and standard error pointed at the studio log.
+ libc = "0.2"
+@@ -124,3 +127,6 @@ rustel-mini = { path = "../mini" }
+ 
+ [lints]
+ workspace = true
++
++[target.'cfg(target_arch = "wasm32")'.dependencies]
++web-sys = { version = "0.3", features = ["Window", "Storage"] }
+diff --git a/crates/studio/src/app.rs b/crates/studio/src/app.rs
+index 8bca756..00f5a45 100644
+--- a/crates/studio/src/app.rs
++++ b/crates/studio/src/app.rs
+@@ -71,7 +71,7 @@ use std::path::PathBuf;
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::mpsc::TryRecvError;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use crossterm::event::{
+     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+@@ -525,8 +525,8 @@ fn open_startup_set(
+ 
+ /// Today, the way a new set is named: `2026-09-06`.
+ fn today() -> String {
+-    let seconds = std::time::SystemTime::now()
+-        .duration_since(std::time::UNIX_EPOCH)
++    let seconds = web_time::SystemTime::now()
++        .duration_since(web_time::UNIX_EPOCH)
+         .map(|since| since.as_secs() as i64)
+         .unwrap_or(0);
+     rustel_runtime::session_log::dashed_timestamp(seconds)
+@@ -767,7 +767,7 @@ fn run_once(mut options: StudioOptions) -> Result<Session, RuntimeError> {
+         let ending = std::thread::spawn(rustel_runtime::vst::shutdown);
+         while !ending.is_finished() {
+             rustel_runtime::vst::pump_main();
+-            std::thread::sleep(std::time::Duration::from_millis(4));
++            std::thread::sleep(web_time::Duration::from_millis(4));
+         }
+         ending
+             .join()
+@@ -1681,7 +1681,11 @@ impl App {
+         let performance_events = options.performance_events;
+         // The studio's own log is one file for every set, beside the
+         // preferences, never inside a set's folder.
+-        let log = StudioLog::open(Some(&rustel_runtime::session_log::default_session_dir()));
++        let log = if cfg!(target_arch = "wasm32") {
++            StudioLog::open(None)
++        } else {
++            StudioLog::open(Some(&rustel_runtime::session_log::default_session_dir()))
++        };
+         #[cfg(feature = "hydra")]
+         let theme_camera_confirmed = theme.camera_enabled().then(|| theme.name.clone());
+         let prefs = StudioPrefs::load();
+@@ -1805,7 +1809,7 @@ impl App {
+             prefs_changed_at: now,
+             limiter_mode_due: None,
+             manifest_changed_at: now,
+-            last_edit_at: now - LINT_DEBOUNCE,
++            last_edit_at: now.checked_sub(LINT_DEBOUNCE).unwrap_or(now),
+             external_watch: None,
+             external_watch_checked_at: now,
+             reference_anchor: None,
+@@ -3096,7 +3100,7 @@ mod tests {
+                 if !had && app.prebake_inflight.is_none() && app.prebake_queue.is_empty() {
+                     return;
+                 }
+-                std::thread::sleep(std::time::Duration::from_millis(5));
++                std::thread::sleep(web_time::Duration::from_millis(5));
+             }
+         }
+ 
+@@ -3153,8 +3157,8 @@ mod tests {
+             // Wait for completed import rows, not an idle worker: on a cold cache,
+             // folder walks can remain queued behind default-manifest downloads.
+             pub(in crate::app) fn settle_sample_sources(&mut self) {
+-                const CEILING: std::time::Duration = std::time::Duration::from_secs(60);
+-                let started = std::time::Instant::now();
++                const CEILING: web_time::Duration = web_time::Duration::from_secs(60);
++                let started = web_time::Instant::now();
+                 loop {
+                     if let Some(library) = self.worker.library() {
+                         library.wait_until_idle(CEILING.saturating_sub(started.elapsed()));
+@@ -3166,7 +3170,7 @@ mod tests {
+                     if !walking || started.elapsed() >= CEILING {
+                         return;
+                     }
+-                    std::thread::sleep(std::time::Duration::from_millis(25));
++                    std::thread::sleep(web_time::Duration::from_millis(25));
+                 }
+             }
+ 
+@@ -3645,3 +3649,253 @@ mod tests {
+         }
+     }
+ }
++
++/// Browser frontend for the real Studio application. The host owns scheduling,
++/// input, audio messages and persistence; rendering and interaction stay in App.
++#[cfg(target_arch = "wasm32")]
++pub struct BrowserStudio {
++    app: App,
++    analyzer: rustel_runtime::ui_analysis::UiAudioAnalyzer,
++    cursor: Option<(u16, u16)>,
++}
++#[cfg(target_arch = "wasm32")]
++impl BrowserStudio {
++    pub fn new(source: &str, state: Option<&str>) -> Result<Self, String> {
++        let mut options = StudioOptions::new("browser");
++        options.memory_clipboard = true;
++        options.default_samples = false;
++        let scenes = match state.and_then(SceneSet::from_browser_state) {
++            Some(scenes) => scenes,
++            None => SceneSet::from_browser_source(source).map_err(|e| e.to_string())?,
++        };
++        let worker = StudioWorker::browser().map_err(|e| e.message)?;
++        let mut app = App::new(options, Theme::built_in_default(), scenes, worker)
++            .map_err(|e| e.to_string())?;
++        app.devices
++            .pin(crate::devices::DeviceInventory::no_hardware());
++        app.adopt_terminal(TerminalFeatures {
++            name: "Browser".into(),
++            keyboard: true,
++            truecolor: true,
++            symbols: true,
++            cell_pixels: Some((8, 18)),
++            ..Default::default()
++        });
++        app.capabilities = KeyboardCapabilities::enhanced();
++        Ok(Self {
++            app,
++            analyzer: rustel_runtime::ui_analysis::UiAudioAnalyzer::new(),
++            cursor: None,
++        })
++    }
++    pub fn play(&mut self) -> Result<(), String> {
++        self.app
++            .dispatch_bind_action(BindAction::Evaluate, false)
++            .map(|_| ())
++            .map_err(|e| e.to_string())
++    }
++    pub fn stop(&mut self) -> Result<(), String> {
++        self.app
++            .dispatch_bind_action(BindAction::Stop, false)
++            .map(|_| ())
++            .map_err(|e| e.to_string())
++    }
++    pub fn source(&self) -> String {
++        self.app.editor().source()
++    }
++    pub fn state(&self) -> String {
++        self.app.scenes.browser_state()
++    }
++    pub fn cursor(&self) -> Option<(u16, u16)> {
++        self.cursor
++    }
++    pub fn clipboard(&mut self) -> String {
++        self.app.clipboard.get_text().unwrap_or_default()
++    }
++    pub fn gain(&self) -> f32 {
++        self.app.worker.master().gain()
++    }
++    pub fn event(&mut self, event: crossterm::event::Event) -> Result<(), String> {
++        self.app
++            .handle_terminal_event(event)
++            .map_err(|e| e.to_string())
++    }
++    pub fn commands(&mut self) -> String {
++        self.app.flush_pending_evaluation();
++        self.app.flush_pending_sliders();
++        serde_json::to_string(&self.app.worker.browser_commands()).unwrap_or_else(|_| "[]".into())
++    }
++    pub fn evaluated(
++        &mut self,
++        request: u64,
++        revision: u64,
++        source: &str,
++        generation: u64,
++        error: Option<String>,
++    ) {
++        self.app
++            .worker
++            .browser_evaluated(request, revision, source, generation, error);
++        self.app.drain_engine();
++    }
++    pub fn transport(&mut self, playing: bool, generation: u64, cycle: f64, cps: f64) {
++        self.app.worker.browser_snapshot(
++            playing,
++            generation,
++            cycle,
++            cps,
++            self.app.evaluated_source.as_deref().unwrap_or(""),
++        );
++        self.app.drain_engine();
++    }
++    pub fn events(
++        &mut self,
++        json: &str,
++        generation: u64,
++        time: f64,
++        cps: f64,
++    ) -> Result<(), String> {
++        use rustel_runtime::ui_events::{UiEventBatch, UiScheduledEvent};
++        let values: Vec<serde_json::Value> =
++            serde_json::from_str(json).map_err(|e| e.to_string())?;
++        let rational = |n: f64| format!("{}/1000000", (n * 1_000_000.0).round() as i64);
++        let events = values
++            .into_iter()
++            .take(2048)
++            .map(|v| {
++                let begin = v["cycle"].as_f64().unwrap_or(0.0);
++                let duration = v["duration"].as_f64().unwrap_or(0.0);
++                UiScheduledEvent {
++                    onset_id: v["id"].as_u64().unwrap_or(0),
++                    generation,
++                    whole_begin: rational(begin),
++                    whole_end: rational(begin + duration),
++                    part_begin: rational(begin),
++                    part_end: rational(begin + duration),
++                    target_time: begin / cps.max(0.0001),
++                    duration_seconds: duration / cps.max(0.0001),
++                    value: v["sound"].as_str().map(str::to_owned),
++                    color: None,
++                    label: None,
++                    active_label: None,
++                    scale: None,
++                    frequency_hz: v["pitch"]
++                        .as_f64()
++                        .map(|p| (440.0 * 2_f64.powf((p - 69.0) / 12.0)) as f32),
++                    gain: v["gain"].as_f64().map(|g| g as f32),
++                    sample: None,
++                    lane: v["lane"]
++                        .as_str()
++                        .and_then(|s| s.trim_start_matches('#').parse().ok()),
++                    sound: v["sound"].as_str().map(str::to_owned),
++                    ui_visuals: v["ui_visuals"]
++                        .as_str()
++                        .and_then(|s| s.parse().ok())
++                        .or_else(|| v["ui_visuals"].as_u64())
++                        .unwrap_or(0),
++                    context: serde_json::from_value(v["context"].clone()).unwrap_or_default(),
++                }
++            })
++            .collect();
++        let revision = source_revision(self.app.evaluated_source.as_deref().unwrap_or(""));
++        let batch = UiEventBatch::new(time, time * cps, cps, generation, revision, events, 0)
++            .map_err(|e| e.to_string())?;
++        self.app.visual.install_batch(batch);
++        Ok(())
++    }
++    pub fn audio(
++        &mut self,
++        json: &str,
++        generation: u64,
++        sequence: u64,
++        time: f64,
++        rate: u32,
++    ) -> Result<(), String> {
++        use rustel_runtime::ui_analysis::{UiAudioAnalysisSet, UiAudioAnalyzer};
++        let values: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
++        let samples = |value: &serde_json::Value| {
++            value
++                .as_array()
++                .map(|a| {
++                    a.iter()
++                        .filter_map(|v| v.as_f64().filter(|v| v.is_finite()).map(|v| v as f32))
++                        .take(4096)
++                        .collect::<Vec<_>>()
++                })
++                .unwrap_or_default()
++        };
++        let analyzer = &mut self.analyzer;
++        let mono = samples(&values["master"]);
++        self.app
++            .worker
++            .master()
++            .browser_peak(mono.iter().map(|s| s.abs()).fold(0.0, f32::max));
++        let master = analyzer.analyze(&mono);
++        let visuals = values["visuals"]
++            .as_array()
++            .map(|a| {
++                a.iter()
++                    .filter_map(|v| {
++                        Some((
++                            v["slot"].as_u64()? as u8,
++                            analyzer.analyze(&samples(&v["samples"])),
++                        ))
++                    })
++                    .take(64)
++                    .collect()
++            })
++            .unwrap_or_default();
++        let metadata = rustel_runtime::ui_events::UiAudioMetadata {
++            sequence,
++            generation,
++            device_time: time,
++            stream_id: 1,
++            epoch: generation,
++            end_frame: (time * rate as f64) as u64,
++            sample_rate: rate,
++        };
++        self.app.visual.install_audio(
++            metadata,
++            UiAudioAnalysisSet {
++                master,
++                visuals,
++                sides: Vec::new(),
++            },
++        );
++        Ok(())
++    }
++    pub fn render(&mut self, width: u16, height: u16) -> Result<ratatui::buffer::Buffer, String> {
++        let now = Instant::now();
++        self.app.drain_engine();
++        self.app.drain_save();
++        if self.app.prefs_pending && now.duration_since(self.app.prefs_changed_at) >= PREFS_DEBOUNCE
++        {
++            self.app.flush_prefs();
++        }
++        self.app.manifest_pending = false;
++        self.app.settle_marks(now);
++        self.app.observe_master(now);
++        self.app.advance_evaluation_flash(now);
++        self.app.expire_notice(now);
++        let mut terminal =
++            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
++                .map_err(|e| e.to_string())?;
++        let mut failure = None;
++        terminal
++            .draw(|frame| {
++                if let Err(e) = self.app.paint_into(frame, now) {
++                    failure = Some(e.to_string());
++                }
++            })
++            .map_err(|e| e.to_string())?;
++        if let Some(e) = failure {
++            return Err(e);
++        }
++        let backend = terminal.backend();
++        self.cursor = backend.cursor_visible().then(|| {
++            let p = backend.cursor_position();
++            (p.x, p.y)
++        });
++        Ok(backend.buffer().clone())
++    }
++}
+diff --git a/crates/studio/src/app/audio_advisory.rs b/crates/studio/src/app/audio_advisory.rs
+index 33e4c7d..7d50815 100644
+--- a/crates/studio/src/app/audio_advisory.rs
++++ b/crates/studio/src/app/audio_advisory.rs
+@@ -3,7 +3,7 @@
+ //! Counters are cumulative because optional worker snapshots can be dropped.
+ //! One late callback, startup work, and old pressure labels are not warnings.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use super::{App, StudioSnapshot};
+ use rustel_runtime::ProducerLoadSnapshot;
+diff --git a/crates/studio/src/app/evaluation.rs b/crates/studio/src/app/evaluation.rs
+index c11f271..33d970c 100644
+--- a/crates/studio/src/app/evaluation.rs
++++ b/crates/studio/src/app/evaluation.rs
+@@ -1654,8 +1654,8 @@ mod tests {
+                 "the apply waits inside the pause, it is not lost"
+             );
+             let elapsed =
+-                app.ui_settings.typing_pause.duration() + std::time::Duration::from_millis(50);
+-            app.last_edit_at = std::time::Instant::now()
++                app.ui_settings.typing_pause.duration() + web_time::Duration::from_millis(50);
++            app.last_edit_at = web_time::Instant::now()
+                 .checked_sub(elapsed)
+                 .expect("backdate the edit");
+             // An idle worker still says stopped every 100 ms, and the drain
+@@ -1680,7 +1680,7 @@ mod tests {
+             // A pause that elapsed while stopped buys nothing later.
+             app.auto_evaluate_due = true;
+             app.snapshot = None;
+-            app.last_edit_at = std::time::Instant::now()
++            app.last_edit_at = web_time::Instant::now()
+                 .checked_sub(elapsed)
+                 .expect("backdate the edit");
+             app.pump_turn();
+@@ -1782,8 +1782,8 @@ mod tests {
+         /// stopped, and a pause spent that way has to be owed again.
+         fn past_the_pause(app: &mut App, done: impl Fn(&App) -> bool) {
+             let elapsed =
+-                app.ui_settings.typing_pause.duration() + std::time::Duration::from_millis(50);
+-            app.last_edit_at = std::time::Instant::now()
++                app.ui_settings.typing_pause.duration() + web_time::Duration::from_millis(50);
++            app.last_edit_at = web_time::Instant::now()
+                 .checked_sub(elapsed)
+                 .expect("backdate the edit");
+             for _ in 0..200 {
+@@ -1823,14 +1823,14 @@ mod tests {
+                 "no update left for a label half typed"
+             );
+             let file = directory.path().join("first.strudel");
+-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
++            let deadline = web_time::Instant::now() + web_time::Duration::from_secs(5);
+             while std::fs::read_to_string(&file).ok().as_deref() != Some("$: s(\"bd\")\n$:") {
+                 app.pump_turn();
+                 assert!(
+-                    std::time::Instant::now() < deadline,
++                    web_time::Instant::now() < deadline,
+                     "the file never took the words"
+                 );
+-                std::thread::sleep(std::time::Duration::from_millis(5));
++                std::thread::sleep(web_time::Duration::from_millis(5));
+             }
+ 
+             let request_id = app.next_request_id;
+diff --git a/crates/studio/src/app/event_loop.rs b/crates/studio/src/app/event_loop.rs
+index 61b0e82..e02da59 100644
+--- a/crates/studio/src/app/event_loop.rs
++++ b/crates/studio/src/app/event_loop.rs
+@@ -1320,7 +1320,7 @@ mod tests {
+         /// own way in: the app's `paint_into` into a test backend.
+         fn screen_rows(app: &mut App) -> Vec<String> {
+             let mut terminal = Terminal::new(TestBackend::new(140, 40)).expect("test terminal");
+-            let started = std::time::Instant::now();
++            let started = web_time::Instant::now();
+             terminal
+                 .draw(|frame| app.paint_into(frame, started).expect("frame paints"))
+                 .expect("test backend draw");
+diff --git a/crates/studio/src/app/export_sheet.rs b/crates/studio/src/app/export_sheet.rs
+index 5743e19..4222d4c 100644
+--- a/crates/studio/src/app/export_sheet.rs
++++ b/crates/studio/src/app/export_sheet.rs
+@@ -67,8 +67,8 @@ impl App {
+             .map(PathBuf::from)
+             .filter(|remembered| remembered.is_absolute() && remembered.is_dir())
+             .unwrap_or_else(|| self.scenes.directory().join(EXPORT_DIRECTORY_NAME));
+-        let seconds = std::time::SystemTime::now()
+-            .duration_since(std::time::UNIX_EPOCH)
++        let seconds = web_time::SystemTime::now()
++            .duration_since(web_time::UNIX_EPOCH)
+             .map(|since| since.as_secs() as i64)
+             .unwrap_or(0);
+         self.export_sheet = Some(ExportSheet::open(
+@@ -505,11 +505,11 @@ mod tests {
+             press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+             assert!(app.export_sheet.is_none(), "the first Esc closed the sheet");
+             assert!(app.export_job.is_some(), "the bounce runs on");
+-            let landed = std::time::Instant::now() + std::time::Duration::from_secs(60);
+-            while app.export_job.is_some() && std::time::Instant::now() < landed {
++            let landed = web_time::Instant::now() + web_time::Duration::from_secs(60);
++            while app.export_job.is_some() && web_time::Instant::now() < landed {
+                 app.poll_export();
+                 if app.export_job.is_some() {
+-                    std::thread::sleep(std::time::Duration::from_millis(50));
++                    std::thread::sleep(web_time::Duration::from_millis(50));
+                 }
+             }
+             assert!(app.export_job.is_none(), "the bounce never landed");
+@@ -539,11 +539,11 @@ mod tests {
+                 app.status,
+                 format!("ending the export of {scene} - no file yet")
+             );
+-            let landed = std::time::Instant::now() + std::time::Duration::from_secs(60);
+-            while app.export_job.is_some() && std::time::Instant::now() < landed {
++            let landed = web_time::Instant::now() + web_time::Duration::from_secs(60);
++            while app.export_job.is_some() && web_time::Instant::now() < landed {
+                 app.poll_export();
+                 if app.export_job.is_some() {
+-                    std::thread::sleep(std::time::Duration::from_millis(50));
++                    std::thread::sleep(web_time::Duration::from_millis(50));
+                 }
+             }
+             assert!(app.export_job.is_none(), "the bounce never landed");
+@@ -559,13 +559,13 @@ mod tests {
+ 
+             app.toggle_export_sheet();
+             assert!(app.handle_export_key(crossterm::event::KeyCode::Enter, false, false));
+-            let landed = std::time::Instant::now() + std::time::Duration::from_secs(60);
++            let landed = web_time::Instant::now() + web_time::Duration::from_secs(60);
+             while app.export_job.as_ref().expect("running").glance().seconds <= 0.0 {
+                 assert!(
+-                    std::time::Instant::now() < landed,
++                    web_time::Instant::now() < landed,
+                     "the bounce wrote no frame"
+                 );
+-                std::thread::sleep(std::time::Duration::from_millis(10));
++                std::thread::sleep(web_time::Duration::from_millis(10));
+             }
+             // The chord over the open render window ends the bounce, and
+             // leaves the window open to watch the fade land.
+@@ -581,10 +581,10 @@ mod tests {
+                 app.status,
+                 format!("ending the export of {scene} - fading out")
+             );
+-            while app.export_job.is_some() && std::time::Instant::now() < landed {
++            while app.export_job.is_some() && web_time::Instant::now() < landed {
+                 app.poll_export();
+                 if app.export_job.is_some() {
+-                    std::thread::sleep(std::time::Duration::from_millis(50));
++                    std::thread::sleep(web_time::Duration::from_millis(50));
+                 }
+             }
+             assert!(app.export_job.is_none(), "the bounce never landed");
+diff --git a/crates/studio/src/app/harness.rs b/crates/studio/src/app/harness.rs
+index 271ef33..5d26122 100644
+--- a/crates/studio/src/app/harness.rs
++++ b/crates/studio/src/app/harness.rs
+@@ -12,7 +12,7 @@
+ //! this is reachable from the product, and the product must not depend on it.
+ 
+ use std::sync::atomic::{AtomicU64, Ordering};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+ use ratatui::buffer::Buffer;
+@@ -919,7 +919,7 @@ impl Studio {
+         let (width, height) = self.size;
+         let backend = TestBackend::new(width, height);
+         let mut terminal = Terminal::new(backend).expect("test terminal");
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         terminal
+             .draw(|frame| {
+                 self.app
+diff --git a/crates/studio/src/app/hydra_backdrop.rs b/crates/studio/src/app/hydra_backdrop.rs
+index 65d93ad..3d47521 100644
+--- a/crates/studio/src/app/hydra_backdrop.rs
++++ b/crates/studio/src/app/hydra_backdrop.rs
+@@ -370,7 +370,7 @@ mod tests {
+                     if let Some((_, webcam)) = app.theme_sketch_sent.as_ref() {
+                         return *webcam;
+                     }
+-                    std::thread::sleep(std::time::Duration::from_millis(5));
++                    std::thread::sleep(web_time::Duration::from_millis(5));
+                 }
+                 panic!("the theme sketch was never accepted by the worker");
+             };
+diff --git a/crates/studio/src/app/keyboard.rs b/crates/studio/src/app/keyboard.rs
+index 5948a4a..0ca5fc6 100644
+--- a/crates/studio/src/app/keyboard.rs
++++ b/crates/studio/src/app/keyboard.rs
+@@ -1736,7 +1736,7 @@ mod tests {
+         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+         use ratatui::{Terminal, backend::TestBackend};
+         use std::panic::AssertUnwindSafe;
+-        use std::time::Instant;
++        use web_time::Instant;
+ 
+         /// Remote parse_key's modifier set, excluding NONE (handled separately).
+         fn modifiers() -> Vec<KeyModifiers> {
+diff --git a/crates/studio/src/app/power_advisory.rs b/crates/studio/src/app/power_advisory.rs
+index 4467027..e843fcc 100644
+--- a/crates/studio/src/app/power_advisory.rs
++++ b/crates/studio/src/app/power_advisory.rs
+@@ -5,7 +5,7 @@
+ //! deadline. The power mode is read only after the trouble lasts, never at
+ //! startup.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use super::StudioSnapshot;
+ 
+diff --git a/crates/studio/src/app/render.rs b/crates/studio/src/app/render.rs
+index 64bbd08..e2aaa6f 100644
+--- a/crates/studio/src/app/render.rs
++++ b/crates/studio/src/app/render.rs
+@@ -689,7 +689,13 @@ impl App {
+         let device = snapshot
+             .and_then(|value| value.device.as_ref())
+             .map(|device| self.device_name_for(device.name(), false))
+-            .or_else(|| self.resting_output_name());
++            .or_else(|| {
++                if cfg!(target_arch = "wasm32") && self.is_playing() {
++                    Some("Browser AudioWorklet".into())
++                } else {
++                    self.resting_output_name()
++                }
++            });
+         let input_device = snapshot
+             .and_then(|value| value.input_device.as_deref())
+             .map(|input| self.device_name_for(input, true));
+@@ -2167,7 +2173,7 @@ mod tests {
+         use crate::app::tests::support;
+         use ratatui::{Terminal, backend::TestBackend};
+         use std::sync::Arc;
+-        use std::time::Instant;
++        use web_time::Instant;
+ 
+         /// Key sequences, each ending in one stable configuration.
+         const CONFIGS: &[(&str, &[&str])] = &[
+diff --git a/crates/studio/src/app/sets.rs b/crates/studio/src/app/sets.rs
+index 8838ace..f4ea730 100644
+--- a/crates/studio/src/app/sets.rs
++++ b/crates/studio/src/app/sets.rs
+@@ -3073,7 +3073,7 @@ mod tests {
+             app.prefs.sets_directory = Some(sets.display().to_string());
+             // The score times are ahead of the clock, so each one is newer
+             // than the folder's own time.
+-            let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3_600);
++            let ahead = std::time::SystemTime::now() + web_time::Duration::from_secs(3_600);
+             for (name, seconds) in [("alpha", 10), ("beta", 30), ("delta", 20), ("gamma", 20)] {
+                 let path = sets.join(name);
+                 std::fs::create_dir_all(&path).expect("set folder");
+@@ -3083,7 +3083,7 @@ mod tests {
+                     .write(true)
+                     .open(&score)
+                     .and_then(|file| {
+-                        file.set_modified(ahead + std::time::Duration::from_secs(seconds))
++                        file.set_modified(ahead + web_time::Duration::from_secs(seconds))
+                     })
+                     .expect("score time");
+             }
+diff --git a/crates/studio/src/app/theme_sheets.rs b/crates/studio/src/app/theme_sheets.rs
+index 33f2fa5..0a3fcb5 100644
+--- a/crates/studio/src/app/theme_sheets.rs
++++ b/crates/studio/src/app/theme_sheets.rs
+@@ -1277,7 +1277,7 @@ mod tests {
+         //! theme_visuals_survive_degenerate_sizes -- --nocapture`.
+ 
+         use ratatui::{Terminal, backend::TestBackend};
+-        use std::time::Instant;
++        use web_time::Instant;
+ 
+         #[test]
+         fn theme_visuals_survive_degenerate_sizes() {
+diff --git a/crates/studio/src/app/video_window.rs b/crates/studio/src/app/video_window.rs
+index 8c715e1..b4cdc49 100644
+--- a/crates/studio/src/app/video_window.rs
++++ b/crates/studio/src/app/video_window.rs
+@@ -14,7 +14,7 @@ use std::cell::RefCell;
+ use std::num::NonZeroU32;
+ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use rustel_runtime::video::VideoThumbnails;
+ use winit::application::ApplicationHandler;
+diff --git a/crates/studio/src/app/vst.rs b/crates/studio/src/app/vst.rs
+index 4f2b376..bb98ecf 100644
+--- a/crates/studio/src/app/vst.rs
++++ b/crates/studio/src/app/vst.rs
+@@ -1408,7 +1408,7 @@ mod tests {
+             params: vec![param].into(),
+             instrument: true,
+             running: 0,
+-            load_time: std::time::Duration::ZERO,
++            load_time: web_time::Duration::ZERO,
+             audio_thread: false,
+             latency: None,
+             presets: 2,
+diff --git a/crates/studio/src/catalogue.rs b/crates/studio/src/catalogue.rs
+index c7c3520..73f0d8d 100644
+--- a/crates/studio/src/catalogue.rs
++++ b/crates/studio/src/catalogue.rs
+@@ -59,6 +59,18 @@ impl Catalogue {
+         initial: Snapshot,
+         mut rebuild: impl FnMut() -> Snapshot + Send + 'static,
+     ) -> std::io::Result<Self> {
++        #[cfg(target_arch = "wasm32")]
++        {
++            let (requests, _) = mpsc::sync_channel(1);
++            let (_, results) = mpsc::sync_channel(1);
++            return Ok(Self {
++                snapshot: RefCell::new(Arc::new(initial)),
++                requests,
++                results,
++                pending: Cell::new(false),
++                invalidated: Cell::new(false),
++            });
++        }
+         let (requests, input) = mpsc::sync_channel(1);
+         let (output, results) = mpsc::sync_channel(1);
+         std::thread::Builder::new()
+@@ -129,7 +141,7 @@ impl Catalogue {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use std::time::Duration;
++    use web_time::Duration;
+ 
+     #[test]
+     fn a_blocked_refresh_keeps_the_catalogue_immediately_available() {
+@@ -158,10 +170,10 @@ mod tests {
+         }
+         release.send(()).unwrap();
+         done.recv_timeout(Duration::from_secs(2)).unwrap();
+-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
++        let deadline = web_time::Instant::now() + Duration::from_secs(2);
+         while !catalogue.poll() {
+             assert!(
+-                std::time::Instant::now() < deadline,
++                web_time::Instant::now() < deadline,
+                 "refresh was not published"
+             );
+             std::thread::yield_now();
+@@ -194,7 +206,7 @@ mod tests {
+         assert_eq!(started.recv_timeout(Duration::from_secs(2)).unwrap(), 1);
+         catalogue.invalidate();
+         release.send(()).unwrap();
+-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
++        let deadline = web_time::Instant::now() + Duration::from_secs(2);
+         loop {
+             assert!(!catalogue.poll(), "the outdated result was published");
+             assert!(Arc::ptr_eq(&original, &catalogue.snapshot()));
+@@ -203,15 +215,15 @@ mod tests {
+                 break;
+             }
+             assert!(
+-                std::time::Instant::now() < deadline,
++                web_time::Instant::now() < deadline,
+                 "fresh build was not requested"
+             );
+             std::thread::yield_now();
+         }
+         release.send(()).unwrap();
+-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
++        let deadline = web_time::Instant::now() + Duration::from_secs(2);
+         while !catalogue.poll() {
+-            assert!(std::time::Instant::now() < deadline);
++            assert!(web_time::Instant::now() < deadline);
+             std::thread::yield_now();
+         }
+         assert!(catalogue.snapshot().sources.contains_key("build-2"));
+diff --git a/crates/studio/src/devices.rs b/crates/studio/src/devices.rs
+index 80324c4..ec9bcd2 100644
+--- a/crates/studio/src/devices.rs
++++ b/crates/studio/src/devices.rs
+@@ -8,7 +8,7 @@
+ //! given.
+ 
+ use std::sync::mpsc::{Receiver, TryRecvError, channel};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+diff --git a/crates/studio/src/editor/clipboard.rs b/crates/studio/src/editor/clipboard.rs
+index a7dda4a..411b608 100644
+--- a/crates/studio/src/editor/clipboard.rs
++++ b/crates/studio/src/editor/clipboard.rs
+@@ -53,11 +53,13 @@ impl Clipboard for MemoryClipboard {
+ ///
+ /// The arboard handle deliberately lives for the whole UI session: on Linux
+ /// the process that owns clipboard text may need to remain alive to serve it.
++#[cfg(not(target_arch = "wasm32"))]
+ pub struct PlatformClipboard {
+     system: Option<arboard::Clipboard>,
+     fallback: MemoryClipboard,
+ }
+ 
++#[cfg(not(target_arch = "wasm32"))]
+ impl fmt::Debug for PlatformClipboard {
+     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+         formatter
+@@ -68,12 +70,14 @@ impl fmt::Debug for PlatformClipboard {
+     }
+ }
+ 
++#[cfg(not(target_arch = "wasm32"))]
+ impl Default for PlatformClipboard {
+     fn default() -> Self {
+         Self::new()
+     }
+ }
+ 
++#[cfg(not(target_arch = "wasm32"))]
+ impl PlatformClipboard {
+     pub fn new() -> Self {
+         Self {
+@@ -87,6 +91,7 @@ impl PlatformClipboard {
+     }
+ }
+ 
++#[cfg(not(target_arch = "wasm32"))]
+ impl Clipboard for PlatformClipboard {
+     fn get_text(&mut self) -> Result<String, ClipboardError> {
+         if let Some(system) = &mut self.system {
+@@ -108,7 +113,7 @@ impl Clipboard for PlatformClipboard {
+                                 break;
+                             }
+                             Err(arboard::Error::ClipboardOccupied) if attempt < 4 => {
+-                                std::thread::sleep(std::time::Duration::from_millis(
++                                std::thread::sleep(web_time::Duration::from_millis(
+                                     25 * (attempt as u64 + 1),
+                                 ));
+                             }
+@@ -149,7 +154,7 @@ impl Clipboard for PlatformClipboard {
+                     Err(error @ arboard::Error::ClipboardOccupied) => {
+                         busy = Some(error);
+                         if attempt < 4 {
+-                            std::thread::sleep(std::time::Duration::from_millis(
++                            std::thread::sleep(web_time::Duration::from_millis(
+                                 25 * (attempt as u64 + 1),
+                             ));
+                         }
+@@ -164,3 +169,25 @@ impl Clipboard for PlatformClipboard {
+         Ok(())
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++#[derive(Debug, Default)]
++pub struct PlatformClipboard(MemoryClipboard);
++#[cfg(target_arch = "wasm32")]
++impl PlatformClipboard {
++    pub fn new() -> Self {
++        Self::default()
++    }
++    pub fn system_available(&self) -> bool {
++        false
++    }
++}
++#[cfg(target_arch = "wasm32")]
++impl Clipboard for PlatformClipboard {
++    fn get_text(&mut self) -> Result<String, ClipboardError> {
++        self.0.get_text()
++    }
++    fn set_text(&mut self, text: String) -> Result<(), ClipboardError> {
++        self.0.set_text(text)
++    }
++}
+diff --git a/crates/studio/src/engine.rs b/crates/studio/src/engine.rs
+index cb7d29a..53e3253 100644
+--- a/crates/studio/src/engine.rs
++++ b/crates/studio/src/engine.rs
+@@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+ use std::sync::mpsc::{SyncSender, TrySendError};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_audio::{
+     AudioEvent, DecodedSample, DevicePlaybackError, LiveDeviceReport, LiveReverbBatch,
+@@ -799,6 +799,12 @@ impl std::fmt::Debug for StudioStopHandle {
+ }
+ 
+ impl StudioStopHandle {
++    #[cfg(target_arch = "wasm32")]
++    pub(crate) fn browser() -> Self {
++        Self {
++            transport: Arc::new(Transport::default()),
++        }
++    }
+     pub fn request_stop(&self) {
+         self.transport.stop();
+     }
+@@ -865,6 +871,11 @@ impl Default for StudioMasterBus {
+ }
+ 
+ impl StudioMasterBus {
++    #[cfg(target_arch = "wasm32")]
++    pub(crate) fn browser_peak(&self, peak: f32) {
++        self.peak_bits
++            .fetch_max(peak.max(0.0).to_bits(), Ordering::Relaxed);
++    }
+     /// Host default; an explicit accepted score setting takes precedence.
+     pub fn set_max_polyphony(&self, voices: usize) {
+         self.max_polyphony.store(
+diff --git a/crates/studio/src/engine/evaluation.rs b/crates/studio/src/engine/evaluation.rs
+index 6d2b1ae..fad03f3 100644
+--- a/crates/studio/src/engine/evaluation.rs
++++ b/crates/studio/src/engine/evaluation.rs
+@@ -30,7 +30,7 @@ impl StudioEngine {
+         if was_live {
+             self.match_replacement_headroom_to_producer();
+         }
+-        let started = std::time::Instant::now();
++        let started = web_time::Instant::now();
+         let result = self.evaluate_guarded_inner(source, mini, cancelled);
+         // Only an evaluation that installed prices the next one. A start
+         // times its own evaluation, without the open of its output: see
+@@ -60,7 +60,7 @@ impl StudioEngine {
+     /// [`horizon_for_evaluation`] for the window it keeps. A faster
+     /// evaluation lowers it halfway to what it needs, so one slow edit does
+     /// not keep a long horizon for the life of the engine.
+-    fn follow_horizon_to_evaluation(&mut self, evaluation: std::time::Duration) {
++    fn follow_horizon_to_evaluation(&mut self, evaluation: web_time::Duration) {
+         let needed = horizon_for_evaluation(evaluation);
+         let horizon = needed.max((self.live_horizon + needed) / 2.0);
+         if horizon != self.live_horizon {
+diff --git a/crates/studio/src/engine/external.rs b/crates/studio/src/engine/external.rs
+index 89634f1..7d9a12d 100644
+--- a/crates/studio/src/engine/external.rs
++++ b/crates/studio/src/engine/external.rs
+@@ -795,7 +795,7 @@ mod tests {
+         engine.idle_turn(|_| Ok(()));
+         // The manager opens on its own thread; a bounded wait is the whole
+         // of the asynchrony here.
+-        let asked = std::time::Instant::now();
++        let asked = web_time::Instant::now();
+         loop {
+             let seen = opener
+                 .asked
+diff --git a/crates/studio/src/engine/link.rs b/crates/studio/src/engine/link.rs
+index 316890c..910d21f 100644
+--- a/crates/studio/src/engine/link.rs
++++ b/crates/studio/src/engine/link.rs
+@@ -1,7 +1,7 @@
+ //! The Link session's side of the engine: turning it on and off,
+ //! following its tempo and phase, and telling it what this studio plays.
+ 
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ use rustel_runtime::link::Link;
+ use rustel_runtime::midi_clock::{self, ClockEstimate};
+diff --git a/crates/studio/src/engine/loading.rs b/crates/studio/src/engine/loading.rs
+index 51ca73a..57076aa 100644
+--- a/crates/studio/src/engine/loading.rs
++++ b/crates/studio/src/engine/loading.rs
+@@ -13,7 +13,7 @@
+ 
+ use std::collections::{BTreeMap, BTreeSet};
+ #[cfg(feature = "vst")]
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ use rustel_runtime::samples::{SampleFailure, SampleLibrary, SoundReadiness, SourceState};
+ use rustel_runtime::{RuntimeError, SAMPLE_LOADING_DIAGNOSTIC};
+@@ -924,7 +924,7 @@ pub(super) mod tests {
+         use super::*;
+         use rustel_audio::RealtimeLoadSnapshot;
+         use rustel_runtime::{EnginePressureCause, EnginePressureLevel, ProducerLoadSnapshot};
+-        use std::time::Instant;
++        use web_time::Instant;
+ 
+         /// Sample-loading refusals leave the header healthy when device and producer
+         /// timing are healthy, including across repeated snippet installations.
+diff --git a/crates/studio/src/engine/samples.rs b/crates/studio/src/engine/samples.rs
+index 52406f2..81f88c1 100644
+--- a/crates/studio/src/engine/samples.rs
++++ b/crates/studio/src/engine/samples.rs
+@@ -9,11 +9,11 @@ const MAX_GAIN_FALLBACKS_SAID: usize = 8;
+ /// for the output to give their copies back. See
+ /// [`StudioEngine::unload_idle_plugins`].
+ #[cfg(feature = "vst")]
+-const PLUGIN_SWEEP_AFTER_EDIT: std::time::Duration = std::time::Duration::from_secs(6);
++const PLUGIN_SWEEP_AFTER_EDIT: web_time::Duration = web_time::Duration::from_secs(6);
+ /// How long a sweep that kept a plugin for a copy the output still plays
+ /// waits before it looks again.
+ #[cfg(feature = "vst")]
+-const PLUGIN_SWEEP_AGAIN: std::time::Duration = std::time::Duration::from_secs(2);
++const PLUGIN_SWEEP_AGAIN: web_time::Duration = web_time::Duration::from_secs(2);
+ 
+ impl StudioEngine {
+     /// Fetch the map of a `samples("…")` a score names, ahead of the
+diff --git a/crates/studio/src/engine/ui_state.rs b/crates/studio/src/engine/ui_state.rs
+index e947307..97a42c9 100644
+--- a/crates/studio/src/engine/ui_state.rs
++++ b/crates/studio/src/engine/ui_state.rs
+@@ -2,7 +2,7 @@
+ 
+ use std::collections::{BTreeMap, HashMap};
+ use std::sync::Arc;
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use rustel_audio::{LIVE_ANALYSIS_WINDOW_SAMPLES, LiveScalarDevice};
+ use rustel_scheduler::ScheduleTraceEvent;
+diff --git a/crates/studio/src/export.rs b/crates/studio/src/export.rs
+index 3e5c9de..e780071 100644
+--- a/crates/studio/src/export.rs
++++ b/crates/studio/src/export.rs
+@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+ use std::sync::mpsc::{Receiver, TryRecvError, channel};
+ use std::sync::{Arc, Mutex};
+ use std::thread;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -1941,14 +1941,14 @@ mod tests {
+                 target.clone(),
+             )
+             .expect("job");
+-            let deadline = Instant::now() + std::time::Duration::from_secs(120);
++            let deadline = Instant::now() + web_time::Duration::from_secs(120);
+             loop {
+                 if let Some(result) = job.poll() {
+                     assert_eq!(result.expect("render"), 0.5);
+                     break;
+                 }
+                 assert!(Instant::now() < deadline, "export timed out");
+-                std::thread::sleep(std::time::Duration::from_millis(10));
++                std::thread::sleep(web_time::Duration::from_millis(10));
+             }
+             target
+         };
+@@ -2006,14 +2006,14 @@ mod tests {
+         clippy::panic_in_result_fn,
+         reason = "the deadline is the test failure"
+     )]
+-    fn await_outcome(job: &ExportJob, within: std::time::Duration) -> Result<f64, String> {
++    fn await_outcome(job: &ExportJob, within: web_time::Duration) -> Result<f64, String> {
+         let deadline = Instant::now() + within;
+         loop {
+             if let Some(outcome) = job.poll() {
+                 return outcome;
+             }
+             assert!(Instant::now() < deadline, "export never finished");
+-            std::thread::sleep(std::time::Duration::from_millis(10));
++            std::thread::sleep(web_time::Duration::from_millis(10));
+         }
+     }
+ 
+@@ -2183,7 +2183,7 @@ mod tests {
+             dir.join("lane.wav"),
+         )
+         .unwrap();
+-        let seconds = await_outcome(&job, std::time::Duration::from_secs(120)).expect("rendered");
++        let seconds = await_outcome(&job, web_time::Duration::from_secs(120)).expect("rendered");
+         assert!((seconds - 1.5).abs() < 0.05, "{seconds}");
+         let _ = std::fs::remove_dir_all(&dir);
+     }
+@@ -2204,7 +2204,7 @@ mod tests {
+             target.clone(),
+         )
+         .unwrap();
+-        let seconds = await_outcome(&job, std::time::Duration::from_secs(120)).expect("rendered");
++        let seconds = await_outcome(&job, web_time::Duration::from_secs(120)).expect("rendered");
+         assert!(
+             (seconds - 4.0).abs() < 0.05,
+             "two cycles at 0.5 cps: {seconds}"
+@@ -2240,7 +2240,7 @@ mod tests {
+             target.clone(),
+         )
+         .expect("job");
+-        let error = await_outcome(&job, std::time::Duration::from_secs(120))
++        let error = await_outcome(&job, web_time::Duration::from_secs(120))
+             .expect_err("a silent bounce is not a finished export");
+         assert!(
+             error
+@@ -2269,7 +2269,7 @@ mod tests {
+             target.clone(),
+         )
+         .expect("job");
+-        let error = await_outcome(&job, std::time::Duration::from_secs(120))
++        let error = await_outcome(&job, web_time::Duration::from_secs(120))
+             .expect_err("a bounce with a missing sound is not a finished export");
+         assert!(error.starts_with("nosuchsound is not loaded"), "{error}");
+         assert!(target.exists(), "the file is written either way");
+@@ -2320,14 +2320,14 @@ mod tests {
+                 session_config(&SessionConfig::default(), voices, inherited, &[], &Default::default(), false),
+                 target.clone(),
+             ).expect("start export job");
+-            let deadline = Instant::now() + std::time::Duration::from_secs(30);
++            let deadline = Instant::now() + web_time::Duration::from_secs(30);
+             loop {
+                 if let Some(result) = job.poll() {
+                     result.expect("export WAV");
+                     break;
+                 }
+                 assert!(Instant::now() < deadline, "export did not finish");
+-                std::thread::sleep(std::time::Duration::from_millis(10));
++                std::thread::sleep(web_time::Duration::from_millis(10));
+             }
+             let wav = std::fs::read(&target).expect("WAV");
+             std::fs::remove_file(&target).expect("remove test WAV");
+@@ -2406,12 +2406,12 @@ mod tests {
+             target.clone(),
+         )
+         .unwrap();
+-        let deadline = Instant::now() + std::time::Duration::from_secs(120);
++        let deadline = Instant::now() + web_time::Duration::from_secs(120);
+         // Let it get going, then end it.
+         while job.glance().seconds < 0.5 {
+             assert!(Instant::now() < deadline, "never started rendering");
+             assert!(job.poll().is_none(), "finished before it was asked to");
+-            std::thread::sleep(std::time::Duration::from_millis(10));
++            std::thread::sleep(web_time::Duration::from_millis(10));
+         }
+         job.finish();
+         let outcome = loop {
+@@ -2419,7 +2419,7 @@ mod tests {
+                 break outcome;
+             }
+             assert!(Instant::now() < deadline, "export never finished");
+-            std::thread::sleep(std::time::Duration::from_millis(10));
++            std::thread::sleep(web_time::Duration::from_millis(10));
+         };
+         let seconds = outcome.expect("rendered");
+         assert!(job.finished_early());
+@@ -2464,7 +2464,7 @@ mod tests {
+             target.clone(),
+         )
+         .expect("job");
+-        let error = await_outcome(&job, std::time::Duration::from_secs(120))
++        let error = await_outcome(&job, web_time::Duration::from_secs(120))
+             .expect_err("a bounce with a plugin that does not start is not a finished export");
+         let named = format!("vst skipped: {} did not start: ", rustel_vst3_fixture::NAME);
+         assert!(error.starts_with(&named), "{error}");
+@@ -2491,7 +2491,7 @@ mod tests {
+                 target.clone(),
+             )
+             .expect("job");
+-            let outcome = await_outcome(&job, std::time::Duration::from_secs(120));
++            let outcome = await_outcome(&job, web_time::Duration::from_secs(120));
+             (outcome, job.take_plugin_lines(), target)
+         };
+         let fault = r#"note("c3").s("sine").vst("rustel fixture", { fault: 1 })"#;
+diff --git a/crates/studio/src/file_picker.rs b/crates/studio/src/file_picker.rs
+index 7948f16..97bf434 100644
+--- a/crates/studio/src/file_picker.rs
++++ b/crates/studio/src/file_picker.rs
+@@ -11,7 +11,7 @@
+ //! error line, so the reader corrects the path rather than starting over.
+ 
+ use std::path::{Path, PathBuf};
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -1326,7 +1326,7 @@ mod tests {
+ 
+     #[test]
+     fn two_quick_clicks_on_the_same_row_activate_once() {
+-        use std::time::{Duration, Instant};
++        use web_time::{Duration, Instant};
+ 
+         let mut picker = FilePicker::new("open a set", "opens", candidates(), Path::new("."));
+         let now = Instant::now();
+@@ -1351,7 +1351,7 @@ mod tests {
+ 
+     #[test]
+     fn clicks_outside_the_list_do_not_select_or_activate() {
+-        use std::time::{Duration, Instant};
++        use web_time::{Duration, Instant};
+ 
+         let mut picker = FilePicker::new("open a set", "opens", candidates(), Path::new("."));
+         let now = Instant::now();
+@@ -1374,7 +1374,7 @@ mod tests {
+ 
+     #[test]
+     fn changing_picker_interaction_cancels_a_pending_double_click() {
+-        use std::time::{Duration, Instant};
++        use web_time::{Duration, Instant};
+ 
+         let root = tempfile::tempdir().unwrap();
+         let mut picker = FilePicker::new("open a set", "opens", candidates(), root.path());
+diff --git a/crates/studio/src/jobs.rs b/crates/studio/src/jobs.rs
+index 80c3599..cda15ce 100644
+--- a/crates/studio/src/jobs.rs
++++ b/crates/studio/src/jobs.rs
+@@ -45,16 +45,16 @@ impl BackgroundJob {
+ /// The chip's leading mark: a spinner while animation is on, so the
+ /// header itself says work is moving; ⇣ when motion is off.
+ pub fn jobs_mark() -> &'static str {
+-    jobs_mark_at(super::settings::animation(), std::time::SystemTime::now())
++    jobs_mark_at(super::settings::animation(), web_time::SystemTime::now())
+ }
+ 
+-fn jobs_mark_at(animate: bool, now: std::time::SystemTime) -> &'static str {
++fn jobs_mark_at(animate: bool, now: web_time::SystemTime) -> &'static str {
+     if !animate {
+         return "⇣";
+     }
+     const FRAMES: [&str; 4] = ["⠋", "⠙", "⠸", "⠴"];
+     let frame = now
+-        .duration_since(std::time::UNIX_EPOCH)
++        .duration_since(web_time::UNIX_EPOCH)
+         .map(|age| (age.as_millis() / 120) as usize)
+         .unwrap_or(0)
+         % FRAMES.len();
+@@ -305,9 +305,9 @@ mod tests {
+ 
+     #[test]
+     fn the_jobs_mark_spins_when_animation_is_on() {
+-        assert_eq!(jobs_mark_at(false, std::time::UNIX_EPOCH), "⇣");
+-        assert_eq!(jobs_mark_at(true, std::time::UNIX_EPOCH), "⠋");
+-        let later = std::time::UNIX_EPOCH + std::time::Duration::from_millis(120);
++        assert_eq!(jobs_mark_at(false, web_time::UNIX_EPOCH), "⇣");
++        assert_eq!(jobs_mark_at(true, web_time::UNIX_EPOCH), "⠋");
++        let later = web_time::UNIX_EPOCH + web_time::Duration::from_millis(120);
+         assert_eq!(jobs_mark_at(true, later), "⠙");
+     }
+ 
+diff --git a/crates/studio/src/lint.rs b/crates/studio/src/lint.rs
+index 7ce8741..178060c 100644
+--- a/crates/studio/src/lint.rs
++++ b/crates/studio/src/lint.rs
+@@ -51,6 +51,8 @@ struct Slot {
+ /// it. Results arrive on a channel the interface drains each turn.
+ pub struct Linter {
+     slot: Arc<Slot>,
++    #[cfg(target_arch = "wasm32")]
++    browser_result: std::cell::RefCell<Option<LintResult>>,
+     results: Receiver<LintResult>,
+     join: Option<JoinHandle<()>>,
+ }
+@@ -62,6 +64,15 @@ impl Linter {
+             wake: Condvar::new(),
+         });
+         let (sender, results) = channel();
++        #[cfg(target_arch = "wasm32")]
++        {
++            return Ok(Self {
++                slot,
++                results,
++                join: None,
++                browser_result: Default::default(),
++            });
++        }
+         let worker = Arc::clone(&slot);
+         let join = thread::Builder::new()
+             .name("studio-lint".into())
+@@ -72,12 +83,30 @@ impl Linter {
+             slot,
+             results,
+             join: Some(join),
++            #[cfg(target_arch = "wasm32")]
++            browser_result: Default::default(),
+         })
+     }
+ 
+     /// Hand the newest text to the thread; anything still waiting is
+     /// superseded, so a burst of edits costs one check.
+     pub fn submit(&self, request: LintRequest) {
++        #[cfg(target_arch = "wasm32")]
++        {
++            let diagnostics = lint_with(
++                &request.source,
++                request.mini,
++                request.library.as_deref(),
++                &request.context,
++            );
++            *self.browser_result.borrow_mut() = Some(LintResult {
++                scene: request.scene,
++                revision: request.revision,
++                input_channels: request.context.input_channels,
++                diagnostics,
++            });
++            return;
++        }
+         let mut guard = self.slot.request.lock().unwrap_or_else(|e| e.into_inner());
+         guard.0 = Some(request);
+         drop(guard);
+@@ -85,6 +114,10 @@ impl Linter {
+     }
+ 
+     pub fn try_recv(&self) -> Option<LintResult> {
++        #[cfg(target_arch = "wasm32")]
++        {
++            return self.browser_result.borrow_mut().take();
++        }
+         self.results.try_recv().ok()
+     }
+ }
+@@ -165,16 +198,16 @@ mod tests {
+                 ..LintContext::default()
+             }),
+         });
+-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
++        let deadline = web_time::Instant::now() + web_time::Duration::from_secs(5);
+         let mut results = Vec::new();
+-        while std::time::Instant::now() < deadline {
++        while web_time::Instant::now() < deadline {
+             if let Some(result) = linter.try_recv() {
+                 results.push(result);
+                 if results.iter().any(|result| result.revision == Revision(4)) {
+                     break;
+                 }
+             }
+-            std::thread::sleep(std::time::Duration::from_millis(5));
++            std::thread::sleep(web_time::Duration::from_millis(5));
+         }
+         let newest = results
+             .iter()
+diff --git a/crates/studio/src/log.rs b/crates/studio/src/log.rs
+index f4ebe75..4fac542 100644
+--- a/crates/studio/src/log.rs
++++ b/crates/studio/src/log.rs
+@@ -11,7 +11,7 @@ use std::fmt::Write as _;
+ use std::fs::{File, OpenOptions};
+ use std::io::Write;
+ use std::path::{Path, PathBuf};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -272,8 +272,8 @@ impl StudioLog {
+             // Whole seconds cannot separate a pad press from the install
+             // it asked for: every line of a one-second burst shares a stamp.
+             // Millis make the log a stopwatch.
+-            let unix = std::time::SystemTime::now()
+-                .duration_since(std::time::UNIX_EPOCH)
++            let unix = web_time::SystemTime::now()
++                .duration_since(web_time::UNIX_EPOCH)
+                 .map(|since| since.as_millis() as i64)
+                 .unwrap_or(0);
+             // One record is one formatted string and one write: the studio's
+diff --git a/crates/studio/src/memory.rs b/crates/studio/src/memory.rs
+index cab190a..6c77929 100644
+--- a/crates/studio/src/memory.rs
++++ b/crates/studio/src/memory.rs
+@@ -17,7 +17,7 @@
+ //! left. The two share a border and resize together. On a short log, the
+ //! total and principal parts stay visible before the details.
+ 
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use ratatui::{
+     buffer::Buffer,
+diff --git a/crates/studio/src/meter.rs b/crates/studio/src/meter.rs
+index ecef198..9d84ada 100644
+--- a/crates/studio/src/meter.rs
++++ b/crates/studio/src/meter.rs
+@@ -5,7 +5,7 @@
+ //! score. The meter is post-fader and post-limiter, so its peak shows what
+ //! leaves the machine. The hot input warning is measured before the limiter.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -557,7 +557,7 @@ mod tests {
+     fn a_muted_master_says_so_where_it_would_say_master() {
+         use ratatui::widgets::Widget;
+         let theme = super::super::theme::Theme::default();
+-        let mut master = super::MasterState::new(std::time::Instant::now());
++        let mut master = super::MasterState::new(web_time::Instant::now());
+         let draw = |state: &super::MasterState| {
+             let area = ratatui::layout::Rect::new(0, 0, 40, 2);
+             let mut buffer = ratatui::buffer::Buffer::empty(area);
+@@ -565,7 +565,7 @@ mod tests {
+                 keybinds: &crate::keybinds::Keybinds::default(),
+                 state,
+                 theme: &theme,
+-                now: std::time::Instant::now(),
++                now: web_time::Instant::now(),
+                 playing: true,
+                 limiter: None,
+             }
+@@ -591,7 +591,7 @@ mod tests {
+     /// set is played at rather than one that had to be guessed.
+     #[test]
+     fn a_mute_silences_the_output_and_keeps_the_faders_level() {
+-        let mut master = super::MasterState::new(std::time::Instant::now());
++        let mut master = super::MasterState::new(web_time::Instant::now());
+         assert!(master.set_gain_db(-6.0));
+         let heard = master.gain();
+         assert!(heard > 0.0);
+@@ -926,7 +926,7 @@ mod reduction_row_tests {
+         use crate::keybinds::{BindAction, KeyCombo, Keybinds, Reach};
+         use ratatui::widgets::Widget;
+         let theme = super::super::theme::Theme::default();
+-        let master = super::MasterState::new(std::time::Instant::now());
++        let master = super::MasterState::new(web_time::Instant::now());
+         let draw = |keybinds: &Keybinds, width| {
+             let area = ratatui::layout::Rect::new(0, 0, width, 2);
+             let mut buffer = ratatui::buffer::Buffer::empty(area);
+@@ -934,7 +934,7 @@ mod reduction_row_tests {
+                 keybinds,
+                 state: &master,
+                 theme: &theme,
+-                now: std::time::Instant::now(),
++                now: web_time::Instant::now(),
+                 playing: false,
+                 limiter: None,
+             }
+diff --git a/crates/studio/src/pads.rs b/crates/studio/src/pads.rs
+index 6d5784a..db7e732 100644
+--- a/crates/studio/src/pads.rs
++++ b/crates/studio/src/pads.rs
+@@ -190,8 +190,8 @@ impl RecentPresses {
+ /// mirror through; the gate compares a 40 ms window and needs a clock that
+ /// only moves one way.
+ fn gate_millis() -> u64 {
+-    static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+-    let epoch = *EPOCH.get_or_init(std::time::Instant::now);
++    static EPOCH: std::sync::OnceLock<web_time::Instant> = std::sync::OnceLock::new();
++    let epoch = *EPOCH.get_or_init(web_time::Instant::now);
+     u64::try_from(epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
+ }
+ 
+@@ -247,8 +247,8 @@ fn describe(port: &str, event: MidiEvent) -> Option<String> {
+ }
+ 
+ fn unix_millis() -> u64 {
+-    std::time::SystemTime::now()
+-        .duration_since(std::time::UNIX_EPOCH)
++    web_time::SystemTime::now()
++        .duration_since(web_time::UNIX_EPOCH)
+         .map_or(0, |since| {
+             u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+         })
+diff --git a/crates/studio/src/performance.rs b/crates/studio/src/performance.rs
+index 811a68e..d9c35a6 100644
+--- a/crates/studio/src/performance.rs
++++ b/crates/studio/src/performance.rs
+@@ -1,5 +1,5 @@
+ use std::collections::VecDeque;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use crossterm::event::{Event, KeyEventKind};
+ use serde::Serialize;
+diff --git a/crates/studio/src/prefs.rs b/crates/studio/src/prefs.rs
+index 72d9c83..d3edd01 100644
+--- a/crates/studio/src/prefs.rs
++++ b/crates/studio/src/prefs.rs
+@@ -1278,6 +1278,10 @@ fn keep_unreadable_aside(path: &std::path::Path) -> Option<PathBuf> {
+ impl StudioPrefs {
+     /// Where the file lives: Rustel's config directory plus `studio.json`.
+     pub fn path() -> Option<PathBuf> {
++        #[cfg(target_arch = "wasm32")]
++        {
++            return Some(PathBuf::from("browser/studio.json"));
++        }
+         super::config::directory().map(|directory| directory.join(prefs_file_name().as_ref()))
+     }
+ 
+@@ -1286,6 +1290,10 @@ impl StudioPrefs {
+     /// the next save replaces it. See [`take_kept_aside`]. A key that does
+     /// not read keeps only its own default: see [`read_prefs`].
+     pub fn load() -> Self {
++        #[cfg(target_arch = "wasm32")]
++        {
++            return Self::load_from(Self::path().as_deref());
++        }
+         let path = super::config::read_path(prefs_file_name().as_ref());
+         if let Some(kept) = path.as_deref().and_then(keep_unreadable_aside) {
+             *KEPT_ASIDE.lock().unwrap_or_else(|slot| slot.into_inner()) = Some(kept);
+@@ -1296,10 +1304,27 @@ impl StudioPrefs {
+     /// The preferences on disk, for a reader that changes nothing: a file
+     /// that does not read stays where it is.
+     pub fn read_only() -> Self {
++        #[cfg(target_arch = "wasm32")]
++        {
++            return Self::load();
++        }
+         Self::load_from(super::config::read_path(prefs_file_name().as_ref()).as_deref())
+     }
+ 
+     pub fn load_from(path: Option<&std::path::Path>) -> Self {
++        #[cfg(target_arch = "wasm32")]
++        {
++            let text = web_sys::window()
++                .and_then(|w| w.local_storage().ok().flatten())
++                .and_then(|s| {
++                    s.get_item("rustel-studio-file:browser/studio.json")
++                        .ok()
++                        .flatten()
++                });
++            let mut prefs = text.as_deref().and_then(read_prefs).unwrap_or_default();
++            prefs.carry_over_first_dock();
++            return prefs;
++        }
+         let mut prefs: Self = path
+             .and_then(|path| bounded_file::read_to_string(path, MAX_DOCUMENT_BYTES).ok())
+             .and_then(|text| read_prefs(&text))
+@@ -1350,6 +1375,7 @@ impl StudioPrefs {
+     }
+ 
+     pub fn save_to(&self, path: &std::path::Path) -> Result<(), String> {
++        #[cfg(not(target_arch = "wasm32"))]
+         if let Some(parent) = path.parent() {
+             std::fs::create_dir_all(parent)
+                 .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+diff --git a/crates/studio/src/reference.rs b/crates/studio/src/reference.rs
+index 74b598c..bf26b93 100644
+--- a/crates/studio/src/reference.rs
++++ b/crates/studio/src/reference.rs
+@@ -2532,7 +2532,7 @@ mod tests {
+             let mut panel = ReferencePanel::browse(&reference);
+             panel.scale_query = "b".repeat(400);
+             panel.chord_query = "b".repeat(400);
+-            let started = std::time::Instant::now();
++            let started = web_time::Instant::now();
+             for _ in 0..3 {
+                 assert!(panel.scale_names().is_empty());
+                 assert!(panel.chord_qualities().is_empty());
+@@ -2541,7 +2541,7 @@ mod tests {
+             // under 0.1 s now: the bound sits well clear of both.
+             let elapsed = started.elapsed();
+             assert!(
+-                elapsed < std::time::Duration::from_secs(1),
++                elapsed < web_time::Duration::from_secs(1),
+                 "three passes took {elapsed:?}"
+             );
+         }
+diff --git a/crates/studio/src/reference/vst.rs b/crates/studio/src/reference/vst.rs
+index ca3be8d..7330bbe 100644
+--- a/crates/studio/src/reference/vst.rs
++++ b/crates/studio/src/reference/vst.rs
+@@ -841,7 +841,7 @@ mod tests {
+             params: params.into(),
+             instrument: false,
+             running: 0,
+-            load_time: std::time::Duration::ZERO,
++            load_time: web_time::Duration::ZERO,
+             audio_thread: false,
+             latency: None,
+             presets: 0,
+diff --git a/crates/studio/src/remote.rs b/crates/studio/src/remote.rs
+index e942c07..e61ee8b 100644
+--- a/crates/studio/src/remote.rs
++++ b/crates/studio/src/remote.rs
+@@ -48,7 +48,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TrySendError};
+ use std::sync::{Arc, Mutex};
+ use std::thread::{self, JoinHandle};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+ use ratatui::buffer::Buffer;
+@@ -758,7 +758,7 @@ mod tests {
+     use super::*;
+     use ratatui::layout::Rect;
+     use ratatui::style::{Color, Style};
+-    use std::time::Duration;
++    use web_time::Duration;
+ 
+     fn key(spec: &str) -> KeyEvent {
+         parse_key(spec).unwrap_or_else(|error| panic!("{spec}: {error}"))
+diff --git a/crates/studio/src/replay.rs b/crates/studio/src/replay.rs
+index 123dd61..9229338 100644
+--- a/crates/studio/src/replay.rs
++++ b/crates/studio/src/replay.rs
+@@ -13,7 +13,7 @@
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+diff --git a/crates/studio/src/reveal.rs b/crates/studio/src/reveal.rs
+index 1596398..371cd15 100644
+--- a/crates/studio/src/reveal.rs
++++ b/crates/studio/src/reveal.rs
+@@ -765,3 +765,12 @@ mod tests {
+         );
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++trait BrowserFileUrl {
++    fn to_file_path(&self) -> Result<std::path::PathBuf, ()> {
++        Err(())
++    }
++}
++#[cfg(target_arch = "wasm32")]
++impl BrowserFileUrl for url::Url {}
+diff --git a/crates/studio/src/save.rs b/crates/studio/src/save.rs
+index 477122c..65381a6 100644
+--- a/crates/studio/src/save.rs
++++ b/crates/studio/src/save.rs
+@@ -12,7 +12,7 @@ use std::io::{self, Write};
+ use std::path::{Path, PathBuf};
+ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+ use std::thread::{self, JoinHandle};
+-use std::time::Duration;
++use web_time::Duration;
+ 
+ use rustel_runtime::ui_events::source_revision;
+ 
+@@ -100,6 +100,16 @@ pub(super) struct SaveWorker {
+ 
+ impl SaveWorker {
+     pub fn spawn() -> io::Result<Self> {
++        #[cfg(target_arch = "wasm32")]
++        {
++            return Ok(Self {
++                shared: Arc::new(Shared {
++                    state: Mutex::new(SaveState::default()),
++                    wake: Condvar::new(),
++                }),
++                join: None,
++            });
++        }
+         Self::spawn_with_operation(|path, source| {
+             atomic_write(path, source).map_err(|error| error.to_string())
+         })
+@@ -124,6 +134,19 @@ impl SaveWorker {
+     }
+ 
+     pub fn submit(&self, request: SaveRequest) -> Result<SaveSubmit, SaveSubmitError> {
++        #[cfg(target_arch = "wasm32")]
++        {
++            let result = atomic_write(&request.path, &request.source).map_err(|e| e.to_string());
++            self.shared.lock().completions.push(SaveResult {
++                request_id: request.request_id,
++                path: request.path,
++                source_revision: request.source_revision,
++                result,
++            });
++            return Ok(SaveSubmit {
++                replaced_pending: false,
++            });
++        }
+         let mut state = self.shared.lock();
+         if state.shutting_down {
+             return Err(SaveSubmitError);
+@@ -236,6 +259,16 @@ where
+ /// files - and the changed dates the open list orders by - as they were.
+ /// True when it wrote.
+ pub(super) fn atomic_write(path: &Path, source: &str) -> io::Result<bool> {
++    #[cfg(target_arch = "wasm32")]
++    {
++        let storage = web_sys::window()
++            .and_then(|w| w.local_storage().ok().flatten())
++            .ok_or_else(|| io::Error::other("Browser storage unavailable"))?;
++        storage
++            .set_item(&format!("rustel-studio-file:{}", path.display()), source)
++            .map_err(|e| io::Error::other(format!("{e:?}")))?;
++        return Ok(true);
++    }
+     // The length decides before any read: an externally enlarged or sparse
+     // file cannot hold these bytes, and reading it whole only to learn that
+     // would cost the save an unbounded read.
+@@ -331,7 +364,7 @@ mod tests {
+ 
+         // The same bytes again is not a write: the file keeps the changed
+         // date the first one gave it.
+-        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
++        let past = std::time::SystemTime::now() - web_time::Duration::from_secs(3_600);
+         std::fs::File::options()
+             .write(true)
+             .open(&path)
+diff --git a/crates/studio/src/scenes.rs b/crates/studio/src/scenes.rs
+index 3bdc19e..39a87c2 100644
+--- a/crates/studio/src/scenes.rs
++++ b/crates/studio/src/scenes.rs
+@@ -766,6 +766,19 @@ pub struct SceneSet {
+ }
+ 
+ impl SceneSet {
++    #[cfg(target_arch = "wasm32")]
++    pub fn from_browser_source(source: &str) -> Result<Self, EditorError> {
++        let mut set = Self::empty(PathBuf::from("browser"));
++        set.scenes.push(Scene::new(
++            SceneId(1),
++            SceneKind::Score,
++            PathBuf::from("browser/live.strudel"),
++            source,
++            true,
++        )?);
++        set.next_id = 2;
++        Ok(set)
++    }
+     fn empty(directory: PathBuf) -> Self {
+         Self {
+             directory,
+@@ -786,6 +799,45 @@ impl SceneSet {
+         }
+     }
+ 
++    #[cfg(target_arch = "wasm32")]
++    pub fn browser_state(&self) -> String {
++        serde_json::json!({ "current":self.current, "documents":self.scenes.iter().filter(|s|s.is_score()).map(|s|serde_json::json!({"name":s.path.file_name().unwrap_or_default().to_string_lossy(),"source":s.editor.source()})).collect::<Vec<_>>() }).to_string()
++    }
++    #[cfg(target_arch = "wasm32")]
++    pub fn from_browser_state(text: &str) -> Option<Self> {
++        if text.len() > 2 * 1024 * 1024 {
++            return None;
++        }
++        let value: serde_json::Value = serde_json::from_str(text).ok()?;
++        let documents = value["documents"].as_array()?;
++        if documents.is_empty() || documents.len() > 32 {
++            return None;
++        }
++        let mut set = Self::empty(PathBuf::from("browser"));
++        for (index, document) in documents.iter().enumerate() {
++            let name = document["name"].as_str()?;
++            if name.is_empty() || name.len() > 128 || name.contains(['/', '\\']) || name == ".." {
++                return None;
++            }
++            let source = document["source"].as_str()?;
++            if source.len() > 256 * 1024 {
++                return None;
++            }
++            set.scenes.push(
++                Scene::new(
++                    SceneId(index as u64 + 1),
++                    SceneKind::Score,
++                    set.directory.join(name),
++                    source,
++                    true,
++                )
++                .ok()?,
++            );
++        }
++        set.next_id = set.scenes.len() as u64 + 1;
++        set.current = (value["current"].as_u64().unwrap_or(0) as usize).min(set.scenes.len() - 1);
++        Some(set)
++    }
+     /// What became of this set's unreadable set file. Returns it on the
+     /// first call only. The state itself stays: a stranded file must keep
+     /// refusing writes.
+@@ -1427,11 +1479,14 @@ impl SceneSet {
+     fn create_at(&mut self, source: &str, path: PathBuf) -> Result<SceneId, SceneError> {
+         // The folder mirrors the strip: a scene exists on disk from the
+         // moment it exists on screen.
++        #[cfg(not(target_arch = "wasm32"))]
+         std::fs::OpenOptions::new()
+             .write(true)
+             .create_new(true)
+             .open(&path)?
+             .write_all(source.as_bytes())?;
++        #[cfg(target_arch = "wasm32")]
++        super::save::atomic_write(&path, source)?;
+         let id = SceneId(self.next_id);
+         self.next_id += 1;
+         let scene = Scene::new(id, SceneKind::Score, path, source, true)?;
+diff --git a/crates/studio/src/set_panel.rs b/crates/studio/src/set_panel.rs
+index 7272328..4dfed3a 100644
+--- a/crates/studio/src/set_panel.rs
++++ b/crates/studio/src/set_panel.rs
+@@ -9,7 +9,7 @@
+ //! leaves the file where it is, to be opened again from here.
+ 
+ use std::path::{Path, PathBuf};
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ use crossterm::event::KeyCode;
+ use ratatui::{
+@@ -1666,16 +1666,16 @@ mod tests {
+         let now = Instant::now();
+         assert!(!panel.click(1, now));
+         assert_eq!(panel.selected, 1);
+-        assert!(!panel.click(2, now + std::time::Duration::from_millis(10)));
++        assert!(!panel.click(2, now + web_time::Duration::from_millis(10)));
+         assert!(
+-            panel.click(2, now + std::time::Duration::from_millis(200)),
++            panel.click(2, now + web_time::Duration::from_millis(200)),
+             "the same line, quickly"
+         );
+         assert!(
+-            !panel.click(2, now + std::time::Duration::from_millis(300)),
++            !panel.click(2, now + web_time::Duration::from_millis(300)),
+             "a double click is spent"
+         );
+-        assert!(!panel.click(2, now + std::time::Duration::from_millis(2000)));
++        assert!(!panel.click(2, now + web_time::Duration::from_millis(2000)));
+     }
+ 
+     /// Walking by keys keeps lines in sight past the selection, a click
+@@ -1701,7 +1701,7 @@ mod tests {
+         panel.ensure_visible(height);
+         assert_eq!(panel.scroll, 2, "the clicked line stays under the pointer");
+         assert!(
+-            panel.click(11, now + std::time::Duration::from_millis(100)),
++            panel.click(11, now + web_time::Duration::from_millis(100)),
+             "the second click lands on the same line"
+         );
+ 
+diff --git a/crates/studio/src/settings.rs b/crates/studio/src/settings.rs
+index 5f4f5eb..f6cf5d9 100644
+--- a/crates/studio/src/settings.rs
++++ b/crates/studio/src/settings.rs
+@@ -1110,13 +1110,13 @@ impl UnusedSampleIdle {
+     }
+ 
+     /// Idle pause, or zero to never drop by time.
+-    pub fn duration(self) -> std::time::Duration {
++    pub fn duration(self) -> web_time::Duration {
+         match self {
+-            Self::Quick => std::time::Duration::from_secs(15),
+-            Self::Standard => std::time::Duration::from_secs(30),
+-            Self::Slow => std::time::Duration::from_secs(60),
+-            Self::Long => std::time::Duration::from_secs(300),
+-            Self::Never => std::time::Duration::ZERO,
++            Self::Quick => web_time::Duration::from_secs(15),
++            Self::Standard => web_time::Duration::from_secs(30),
++            Self::Slow => web_time::Duration::from_secs(60),
++            Self::Long => web_time::Duration::from_secs(300),
++            Self::Never => web_time::Duration::ZERO,
+         }
+     }
+ 
+@@ -1207,14 +1207,14 @@ impl FrameRate {
+     /// own refresh the terminal is the thing that cannot keep up. They
+     /// are here because a fast terminal on a fast display can, and the
+     /// studio should not be the one saying no.
+-    pub fn interval(self) -> std::time::Duration {
++    pub fn interval(self) -> web_time::Duration {
+         match self {
+-            Self::Quadruple => std::time::Duration::from_micros(4_167),
+-            Self::Double => std::time::Duration::from_micros(8_333),
+-            Self::Smooth => std::time::Duration::from_micros(16_667),
+-            Self::Half => std::time::Duration::from_micros(33_333),
+-            Self::Quarter => std::time::Duration::from_micros(66_667),
+-            Self::Thrift => std::time::Duration::from_micros(125_000),
++            Self::Quadruple => web_time::Duration::from_micros(4_167),
++            Self::Double => web_time::Duration::from_micros(8_333),
++            Self::Smooth => web_time::Duration::from_micros(16_667),
++            Self::Half => web_time::Duration::from_micros(33_333),
++            Self::Quarter => web_time::Duration::from_micros(66_667),
++            Self::Thrift => web_time::Duration::from_micros(125_000),
+         }
+     }
+ 
+@@ -1358,12 +1358,12 @@ impl TypingPause {
+             .unwrap_or_default()
+     }
+ 
+-    pub fn duration(self) -> std::time::Duration {
++    pub fn duration(self) -> web_time::Duration {
+         match self {
+-            Self::Short => std::time::Duration::from_millis(250),
+-            Self::Medium => std::time::Duration::from_millis(500),
+-            Self::Long => std::time::Duration::from_secs(1),
+-            Self::Slow => std::time::Duration::from_secs(2),
++            Self::Short => web_time::Duration::from_millis(250),
++            Self::Medium => web_time::Duration::from_millis(500),
++            Self::Long => web_time::Duration::from_secs(1),
++            Self::Slow => web_time::Duration::from_secs(2),
+         }
+     }
+ 
+@@ -7540,7 +7540,7 @@ mod tests {
+     /// It is the one control that hands those cycles back.
+     #[test]
+     fn the_frame_rate_ladder_runs_both_ways_from_the_loops_own_sixty() {
+-        use std::time::Duration;
++        use web_time::Duration;
+ 
+         assert_eq!(UiSettings::default().frame_rate, FrameRate::Smooth);
+         assert_eq!(
+diff --git a/crates/studio/src/terminal.rs b/crates/studio/src/terminal.rs
+index ea00695..f5f3c86 100644
+--- a/crates/studio/src/terminal.rs
++++ b/crates/studio/src/terminal.rs
+@@ -116,7 +116,7 @@ impl CaretShape {
+         }
+     }
+ 
+-    pub fn visible_after(self, idle: std::time::Duration) -> bool {
++    pub fn visible_after(self, idle: web_time::Duration) -> bool {
+         self == self.steady() || (idle.as_millis() / 500).is_multiple_of(2)
+     }
+ 
+@@ -1564,7 +1564,7 @@ const MAX_PICTURE_REPLY: usize = 256;
+ 
+ /// How long the rest of a picture reply may take after its `ESC _`.
+ #[cfg(unix)]
+-const PICTURE_REPLY_WAIT: std::time::Duration = std::time::Duration::from_millis(30);
++const PICTURE_REPLY_WAIT: web_time::Duration = web_time::Duration::from_millis(30);
+ 
+ /// Whether `event` is `character` with Alt alone: how crossterm reads an
+ /// `ESC` followed by that character.
+@@ -1768,7 +1768,7 @@ const TERMINAL_CAPABILITY_QUERY: &[u8] =
+ /// the last sub-millisecond of each paced wait into a zero-timeout poll,
+ /// and the loop would spin until the frame is due.
+ #[cfg(unix)]
+-fn poll_millis(wait: std::time::Duration) -> i32 {
++fn poll_millis(wait: web_time::Duration) -> i32 {
+     i32::try_from(wait.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX)
+ }
+ 
+@@ -1790,9 +1790,9 @@ fn ask_terminal() -> Option<Vec<u8>> {
+     tty.write_all(TERMINAL_CAPABILITY_QUERY).ok()?;
+     tty.flush().ok()?;
+     let mut answers = Vec::new();
+-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(400);
++    let deadline = web_time::Instant::now() + web_time::Duration::from_millis(400);
+     loop {
+-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
++        let remaining = deadline.saturating_duration_since(web_time::Instant::now());
+         if remaining.is_zero() {
+             break;
+         }
+@@ -1868,15 +1868,15 @@ fn windows_query_inner(
+         b"\x1b[16t"
+     })?;
+     output.flush()?;
+-    let deadline = std::time::Instant::now()
+-        + std::time::Duration::from_millis(if capabilities { 400 } else { 150 });
++    let deadline = web_time::Instant::now()
++        + web_time::Duration::from_millis(if capabilities { 400 } else { 150 });
+     let mut replies = Vec::new();
+     loop {
+-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
++        let remaining = deadline.saturating_duration_since(web_time::Instant::now());
+         if remaining.is_zero() {
+             return Ok(parse_answers(&replies));
+         }
+-        replies.extend(input.collect_query(remaining.min(std::time::Duration::from_millis(10)))?);
++        replies.extend(input.collect_query(remaining.min(web_time::Duration::from_millis(10)))?);
+         let answers = parse_answers(&replies);
+         // ConPTY may answer DA1 itself before the outer terminal answers
+         // forwarded graphics/synchronization queries. Keep the full startup
+@@ -2189,7 +2189,7 @@ impl TerminalSession {
+     /// So this function looks for the hangup first and does the blocking
+     /// itself. On Unix it asks crossterm only with a zero timeout, after
+     /// the hangup check.
+-    pub fn poll_event(&self, wait: std::time::Duration) -> io::Result<bool> {
++    pub fn poll_event(&self, wait: web_time::Duration) -> io::Result<bool> {
+         #[cfg(windows)]
+         if let Some(input) = self.windows_input.borrow_mut().as_mut() {
+             return input.poll(wait);
+@@ -2267,7 +2267,7 @@ impl TerminalSession {
+     /// score.
+     #[cfg(unix)]
+     fn hold_next_event(&self) -> io::Result<bool> {
+-        while crossterm::event::poll(std::time::Duration::ZERO)? {
++        while crossterm::event::poll(web_time::Duration::ZERO)? {
+             let event = crossterm::event::read()?;
+             if !is_alt_char(&event, '_') {
+                 HELD_KEYS.with(|held| held.borrow_mut().push_back(event));
+@@ -2275,11 +2275,11 @@ impl TerminalSession {
+             }
+             // A reply arrives in one write, so the rest of it is already
+             // read or a moment behind. A key a person typed is not.
+-            let deadline = std::time::Instant::now() + PICTURE_REPLY_WAIT;
++            let deadline = web_time::Instant::now() + PICTURE_REPLY_WAIT;
+             let mut tail = Vec::new();
+             while tail.len() < MAX_PICTURE_REPLY
+                 && crossterm::event::poll(
+-                    deadline.saturating_duration_since(std::time::Instant::now()),
++                    deadline.saturating_duration_since(web_time::Instant::now()),
+                 )?
+             {
+                 let next = crossterm::event::read()?;
+@@ -2749,7 +2749,7 @@ mod tests {
+     #[test]
+     fn blinking_carets_change_phase_even_while_the_terminal_keeps_painting() {
+         use super::CaretShape;
+-        use std::time::Duration;
++        use web_time::Duration;
+         for (blinking, steady) in [
+             (CaretShape::BlinkingBar, CaretShape::SteadyBar),
+             (CaretShape::BlinkingBlock, CaretShape::SteadyBlock),
+@@ -2792,7 +2792,7 @@ mod tests {
+     #[cfg(unix)]
+     #[test]
+     fn a_poll_wait_rounds_up_to_whole_milliseconds() {
+-        use std::time::Duration;
++        use web_time::Duration;
+         assert_eq!(super::poll_millis(Duration::from_micros(16_667)), 17);
+         assert_eq!(super::poll_millis(Duration::from_micros(500)), 1);
+         assert_eq!(super::poll_millis(Duration::ZERO), 0);
+diff --git a/crates/studio/src/terminal/windows_input.rs b/crates/studio/src/terminal/windows_input.rs
+index d3d3647..e74205e 100644
+--- a/crates/studio/src/terminal/windows_input.rs
++++ b/crates/studio/src/terminal/windows_input.rs
+@@ -7,7 +7,7 @@ use std::collections::VecDeque;
+ use std::fs::{File, OpenOptions};
+ use std::io::{self, Write};
+ use std::os::windows::io::AsRawHandle;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use crossterm::event::{
+     Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MediaKeyCode,
+diff --git a/crates/studio/src/theme.rs b/crates/studio/src/theme.rs
+index de03754..eddd6b6 100644
+--- a/crates/studio/src/theme.rs
++++ b/crates/studio/src/theme.rs
+@@ -27,7 +27,7 @@ mod opacity_render_tests {
+     //! are deliberately synthetic contrast stress frames, never sketch previews.
+ 
+     use std::collections::{BTreeSet, HashSet};
+-    use std::time::{Duration, Instant};
++    use web_time::{Duration, Instant};
+ 
+     use ratatui::buffer::Buffer;
+     use ratatui::layout::Rect;
+@@ -1712,8 +1712,8 @@ fn readable(hue: f64, saturation: f64, lightness: f64, ground: Color, target: f3
+ 
+ /// A seed nobody chose, for the first roll of a session.
+ pub fn randomize_seed() -> u32 {
+-    std::time::SystemTime::now()
+-        .duration_since(std::time::UNIX_EPOCH)
++    web_time::SystemTime::now()
++        .duration_since(web_time::UNIX_EPOCH)
+         .map_or(0x9e37_79b9, |since| {
+             since.subsec_nanos() ^ since.as_secs() as u32
+         })
+@@ -2078,8 +2078,8 @@ impl ratatui::widgets::Widget for ThemePickerView<'_> {
+                 // affordance is noticed without being a blink. The back arrow
+                 // waits for the first roll, since before that there is nothing
+                 // behind to go back to.
+-                let millis = std::time::SystemTime::now()
+-                    .duration_since(std::time::UNIX_EPOCH)
++                let millis = web_time::SystemTime::now()
++                    .duration_since(web_time::UNIX_EPOCH)
+                     .unwrap_or_default()
+                     .as_millis() as f64;
+                 let gap = " ".repeat(1 + usize::from((millis / 420.0).sin() > 0.0));
+@@ -2093,8 +2093,8 @@ impl ratatui::widgets::Widget for ThemePickerView<'_> {
+                 format!("{marker}{name}{}", if built_in { "" } else { "  (yours)" })
+             };
+             if name == RANDOMIZE_THEME {
+-                let phase = std::time::SystemTime::now()
+-                    .duration_since(std::time::UNIX_EPOCH)
++                let phase = web_time::SystemTime::now()
++                    .duration_since(web_time::UNIX_EPOCH)
+                     .unwrap_or_default()
+                     .as_millis()
+                     / 90;
+diff --git a/crates/studio/src/theme_editor.rs b/crates/studio/src/theme_editor.rs
+index b9c02fc..d15879a 100644
+--- a/crates/studio/src/theme_editor.rs
++++ b/crates/studio/src/theme_editor.rs
+@@ -12,7 +12,7 @@
+ //! one starts a new theme, and saving it needs a new name. Your themes
+ //! live in the theme directory beside the settings.
+ 
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -1614,7 +1614,7 @@ mod tests {
+         // A dirty code tab that parses lands; one that does not names the
+         // fault and keeps its text for fixing.
+         editor.code = super::super::editor::Editor::new("{ not json").expect("any text opens");
+-        editor.code_dirty_at = Some(std::time::Instant::now());
++        editor.code_dirty_at = Some(web_time::Instant::now());
+         assert!(editor.settle().is_err());
+         assert!(editor.code_error.is_some());
+     }
+diff --git a/crates/studio/src/theme_visuals/mod.rs b/crates/studio/src/theme_visuals/mod.rs
+index dedb5c1..0826651 100644
+--- a/crates/studio/src/theme_visuals/mod.rs
++++ b/crates/studio/src/theme_visuals/mod.rs
+@@ -8,7 +8,7 @@
+ //! The engines live in `rustel-studio-themes`. This module keeps the studio
+ //! paths and turns a [`Theme`] into the paint those engines take.
+ 
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -24,12 +24,17 @@ pub use rustel_studio_themes::visuals::{
+     CharacterVisualSurfaces, ThemeVisualImage, ThemeVisualSurfaces,
+ };
+ 
++#[cfg(not(target_arch = "wasm32"))]
+ #[derive(Debug, Default)]
+ pub struct ThemeVisualEngine(Engine);
++#[cfg(target_arch = "wasm32")]
++#[derive(Debug, Default)]
++pub struct ThemeVisualEngine;
+ 
+ impl ThemeVisualEngine {
+     pub fn update_audio(&self, frame: Option<&rustel_runtime::ui_analysis::UiAudioAnalysisFrame>) {
+         let audio = reactive_audio(frame);
++        #[cfg(not(target_arch = "wasm32"))]
+         self.0
+             .store_audio(audio.rms, audio.bass, audio.mid, audio.treble);
+     }
+@@ -58,6 +63,7 @@ impl ThemeVisualEngine {
+     }
+ 
+     pub fn sync(&mut self, theme: &Theme, now: Instant) {
++        #[cfg(not(target_arch = "wasm32"))]
+         self.0.sync(
+             &ThemePaint {
+                 cell: theme.cell_visual(),
+@@ -73,7 +79,14 @@ impl ThemeVisualEngine {
+     }
+ 
+     pub fn mode(&self) -> Option<TachyonMode> {
+-        self.0.mode()
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            self.0.mode()
++        }
++        #[cfg(target_arch = "wasm32")]
++        {
++            None
++        }
+     }
+ 
+     /// Transform the terminal cells themselves. The effect is seeded with
+@@ -86,6 +99,7 @@ impl ThemeVisualEngine {
+         area: Rect,
+         surfaces: ThemeVisualSurfaces<'_>,
+     ) {
++        #[cfg(not(target_arch = "wasm32"))]
+         self.0.paint_text(now, buffer, area, surfaces);
+     }
+ 
+@@ -93,7 +107,14 @@ impl ThemeVisualEngine {
+     /// pixels and unchanged cells remain transparent; the shared backdrop
+     /// compositor later applies editor and interface opacity.
+     pub fn image(&mut self, now: Instant, buffer: &Buffer, area: Rect) -> Option<ThemeVisualImage> {
+-        self.0.image(now, buffer, area)
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            self.0.image(now, buffer, area)
++        }
++        #[cfg(target_arch = "wasm32")]
++        {
++            None
++        }
+     }
+ 
+     /// Animate score glyphs after its backdrop has been composed. Interface
+@@ -106,6 +127,7 @@ impl ThemeVisualEngine {
+         area: Rect,
+         surfaces: CharacterVisualSurfaces<'_>,
+     ) {
++        #[cfg(not(target_arch = "wasm32"))]
+         self.0.paint_characters(now, buffer, area, surfaces);
+     }
+ }
+diff --git a/crates/studio/src/view.rs b/crates/studio/src/view.rs
+index 92cea12..4aaa94d 100644
+--- a/crates/studio/src/view.rs
++++ b/crates/studio/src/view.rs
+@@ -6,7 +6,7 @@
+ 
+ use std::collections::{BTreeMap, HashMap};
+ use std::path::Path;
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use ratatui::Frame;
+ use ratatui::buffer::Buffer;
+@@ -1052,7 +1052,7 @@ pub fn render(frame: &mut Frame<'_>, view: StudioView<'_>, chrome: StudioChrome<
+                 super::replay::TimelineView {
+                     tab,
+                     theme,
+-                    now: std::time::Instant::now(),
++                    now: web_time::Instant::now(),
+                     focused: pane.timeline_focus,
+                 },
+                 strip,
+diff --git a/crates/studio/src/vim_config.rs b/crates/studio/src/vim_config.rs
+index 07f4e40..332b359 100644
+--- a/crates/studio/src/vim_config.rs
++++ b/crates/studio/src/vim_config.rs
+@@ -4,7 +4,8 @@ use std::fs::{self, OpenOptions};
+ use std::io::{self, Write};
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+-use std::time::{Duration, Instant, SystemTime};
++use std::time::SystemTime;
++use web_time::{Duration, Instant};
+ 
+ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+ 
+diff --git a/crates/studio/src/visuals.rs b/crates/studio/src/visuals.rs
+index 29d5906..4cc4322 100644
+--- a/crates/studio/src/visuals.rs
++++ b/crates/studio/src/visuals.rs
+@@ -11,7 +11,7 @@
+ //! score wrote inside its `_visual(...)` call.
+ 
+ use std::collections::{BTreeMap, HashSet, VecDeque};
+-use std::time::Instant;
++use web_time::Instant;
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+@@ -6102,7 +6102,7 @@ mod tests {
+         let frozen = visual.frozen_at;
+         let held = visual.current_clock().unwrap();
+         let (_, draining_later, _) = visual
+-            .transport_clock_at(frozen.unwrap() + std::time::Duration::from_secs(2))
++            .transport_clock_at(frozen.unwrap() + web_time::Duration::from_secs(2))
+             .unwrap();
+         assert!(
+             draining_later > held.1,
+@@ -6384,7 +6384,7 @@ mod tests {
+         let first_wall = Instant::now();
+         assert!(visual.install_snapshot_clock_at(&first_snapshot, first_wall));
+         assert_eq!(
+-            visual.clock_at(first_wall + std::time::Duration::from_secs(2)),
++            visual.clock_at(first_wall + web_time::Duration::from_secs(2)),
+             Some((12.0, 5.0, 0.5))
+         );
+ 
+@@ -6432,10 +6432,10 @@ mod tests {
+             score_engine: None,
+             audio_memory: None,
+         };
+-        let cutover_wall = first_wall + std::time::Duration::from_secs(10);
++        let cutover_wall = first_wall + web_time::Duration::from_secs(10);
+         assert!(visual.install_snapshot_clock_at(&silent_snapshot, cutover_wall));
+         assert_eq!(
+-            visual.clock_at(cutover_wall + std::time::Duration::from_secs(3)),
++            visual.clock_at(cutover_wall + web_time::Duration::from_secs(3)),
+             Some((23.0, 46.0, 2.0))
+         );
+     }
+diff --git a/crates/studio/src/wav.rs b/crates/studio/src/wav.rs
+index 668d9b9..a13712e 100644
+--- a/crates/studio/src/wav.rs
++++ b/crates/studio/src/wav.rs
+@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
+ use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+ use std::sync::{Arc, Mutex};
+ use std::thread::{self, JoinHandle};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ const CHANNELS: u16 = 2;
+ const BYTES_PER_SAMPLE: u32 = 3;
+diff --git a/crates/studio/src/worker.rs b/crates/studio/src/worker.rs
+index e170537..028ec10 100644
+--- a/crates/studio/src/worker.rs
++++ b/crates/studio/src/worker.rs
+@@ -8,7 +8,7 @@ use std::sync::mpsc::{
+ };
+ use std::sync::{Arc, Mutex};
+ use std::thread::{self, JoinHandle};
+-use std::time::{Duration, Instant};
++use web_time::{Duration, Instant};
+ 
+ use rustel_runtime::ui_analysis::UiAudioAnalysisSet;
+ use rustel_runtime::ui_events::{
+@@ -316,6 +316,8 @@ impl std::error::Error for EvaluationSendError {}
+ /// have independent bounds so a dense score cannot bury an evaluation error
+ /// or the stop acknowledgement behind visualization traffic.
+ pub struct StudioWorker {
++    #[cfg(target_arch = "wasm32")]
++    browser: BrowserWorker,
+     commands: SyncSender<EngineCommand>,
+     controls: Receiver<StudioControlEvent>,
+     traces: Receiver<UiTraceBatchRequest>,
+@@ -427,6 +429,8 @@ impl StudioWorker {
+         })??;
+ 
+         Ok(Self {
++            #[cfg(target_arch = "wasm32")]
++            browser: unreachable!("Use StudioWorker::browser in WASM"),
+             commands,
+             controls,
+             traces,
+@@ -3664,3 +3668,151 @@ mod tests {
+         rustel_runtime::vst::pin_standard_folders(Vec::new());
+     }
+ }
++
++#[cfg(target_arch = "wasm32")]
++struct BrowserWorker {
++    playing: std::cell::Cell<bool>,
++    commands: Receiver<EngineCommand>,
++    controls: SyncSender<StudioControlEvent>,
++    _traces: SyncSender<UiTraceBatchRequest>,
++}
++#[cfg(target_arch = "wasm32")]
++impl StudioWorker {
++    pub(crate) fn browser() -> Result<Self, EngineFailure> {
++        let (commands, input) = sync_channel(64);
++        let (output, controls) = sync_channel(CONTROL_CAPACITY);
++        let (trace_tx, traces) = sync_channel(TRACE_CAPACITY);
++        Ok(Self {
++            browser: BrowserWorker {
++                playing: std::cell::Cell::new(false),
++                commands: input,
++                controls: output,
++                _traces: trace_tx,
++            },
++            commands,
++            controls,
++            traces,
++            latest_audio: Arc::new(Mutex::new(None)),
++            stop: StudioStopHandle::browser(),
++            immediate_stop_requested: Arc::new(AtomicBool::new(false)),
++            audition_stop_requested: Arc::new(AtomicBool::new(false)),
++            master: Arc::new(StudioMasterBus::default()),
++            library: None,
++            catalogue: super::catalogue::Catalogue::new(None).map_err(|e| EngineFailure {
++                kind: "browser".into(),
++                message: e.to_string(),
++                recoverable: false,
++                playback_stopped: true,
++            })?,
++            command_epoch: Arc::new(AtomicU64::new(0)),
++            shutdown_requested: Arc::new(AtomicBool::new(false)),
++            next_recording_request: AtomicU64::new(1),
++            look_ups_sent: AtomicU64::new(0),
++            look_ups_done: Arc::new(AtomicU64::new(0)),
++            join: None,
++        })
++    }
++    pub(crate) fn browser_commands(&self) -> Vec<serde_json::Value> {
++        use serde_json::json;
++        let mut output = Vec::new();
++        while let Ok(command) = self.browser.commands.try_recv() {
++            match command {
++                EngineCommand::Evaluate { request_id, editor_revision, source, mini, rewind, .. } => output.push(json!({ "type":"evaluate", "request":request_id, "revision":editor_revision, "source":source.as_ref(), "mini":mini, "rewind":rewind })),
++                EngineCommand::Stop | EngineCommand::StopImmediate | EngineCommand::Shutdown => output.push(json!({"type":"stop"})),
++                EngineCommand::SetOrbitGain { orbit, gain } => output.push(json!({"type":"orbit-gain", "orbit":orbit,"gain":gain})),
++                EngineCommand::SetSlider { id,value,.. } => output.push(json!({"type":"slider","id":id,"value":value})),
++                EngineCommand::LookUpSamples(_,done) => {done.fetch_add(1,Ordering::Release);},
++                EngineCommand::EvaluatePrebake {request_id,scope,..} => {let _=self.browser.controls.try_send(StudioControlEvent::Prebake(PrebakeOutcome {request_id,scope,result:Err(browser_unsupported("Prebake evaluation"))}));},
++                EngineCommand::Record {request_id,..} => {let _=self.browser.controls.try_send(StudioControlEvent::Recording(RecordingOutcome {request_id:Some(request_id),result:Err(browser_unsupported("Native recording"))}));},
++                EngineCommand::RecordSample {request_id,..} => {let _=self.browser.controls.try_send(StudioControlEvent::SampleRecording(SampleRecordingOutcome {request_id,result:Err(browser_unsupported("Audio input recording"))}));},
++                EngineCommand::Audition(..)|EngineCommand::AuditionNotes(..)|EngineCommand::AuditionRun(..)|EngineCommand::PianoNoteOn {..}|EngineCommand::SetInput(Some(_))|EngineCommand::ClockIn(Some(_))|EngineCommand::ClockOut(Some(_))|EngineCommand::Link(true) => output.push(json!({"type":"unsupported","message":"This control requires a native audio or MIDI host"})),
++                _ => {},
++            }
++        }
++        if self.immediate_stop_requested.swap(false, Ordering::AcqRel) {
++            output.push(json!({"type":"stop"}));
++        }
++        output
++    }
++    pub(crate) fn browser_evaluated(
++        &self,
++        request: u64,
++        revision: u64,
++        source: &str,
++        generation: u64,
++        error: Option<String>,
++    ) {
++        let result = match error {
++            Some(message) => Err(EngineFailure {
++                kind: "evaluation".into(),
++                message,
++                recoverable: true,
++                playback_stopped: false,
++            }),
++            None => {
++                if let Ok(layout) = rustel_runtime::ui_events::visual_layout(source, generation) {
++                    let _ = self
++                        .browser
++                        .controls
++                        .try_send(StudioControlEvent::Layout(layout));
++                }
++                Ok(StudioInstall {
++                    generation,
++                    source_revision: rustel_runtime::ui_events::source_revision(source),
++                    pending_cutover: false,
++                    answered_repeat: false,
++                    held: false,
++                })
++            }
++        };
++        let _ = self
++            .browser
++            .controls
++            .try_send(StudioControlEvent::Evaluation(EvaluationOutcome {
++                request_id: request,
++                editor_revision: revision,
++                result,
++            }));
++    }
++    pub(crate) fn browser_snapshot(
++        &self,
++        playing: bool,
++        generation: u64,
++        cycle: f64,
++        cps: f64,
++        source: &str,
++    ) {
++        let snapshot = StudioSnapshot {
++            playing,
++            session_generation: generation,
++            audible_generation: playing.then_some(generation),
++            confirmed_audio_generation: playing.then_some(generation),
++            cycle,
++            cps,
++            device_time: cycle / cps.max(0.0001),
++            source_revision: Some(rustel_runtime::ui_events::source_revision(source)),
++            output_pairs: 1,
++            ..Default::default()
++        };
++        let _ = self
++            .browser
++            .controls
++            .try_send(StudioControlEvent::Snapshot(Box::new(snapshot)));
++        if self.browser.playing.replace(playing) && !playing {
++            let _ = self
++                .browser
++                .controls
++                .try_send(StudioControlEvent::Stopped(Box::new(StudioStop::idle())));
++        }
++    }
++}
++
++#[cfg(target_arch = "wasm32")]
++fn browser_unsupported(feature: &str) -> EngineFailure {
++    EngineFailure {
++        kind: "unsupported".into(),
++        message: format!("{feature} is unavailable in the browser host"),
++        recoverable: true,
++        playback_stopped: false,
++    }
++}
 diff --git a/crates/transpiler/Cargo.toml b/crates/transpiler/Cargo.toml
 index bc01d71..b3d6b1e 100644
 --- a/crates/transpiler/Cargo.toml
@@ -328,26 +4322,30 @@ index bc01d71..b3d6b1e 100644
  oxc_ast = "0.144.0"
  oxc_ast_visit = "0.144.0"
 diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
-index ccbf7d9..a572cac 100644
+index ccbf7d9..21e31b6 100644
 --- a/crates/transpiler/src/lib.rs
 +++ b/crates/transpiler/src/lib.rs
-@@ -383,7 +383,7 @@ impl OrdinaryStringLiteralRanges {
+@@ -383,7 +383,9 @@ impl OrdinaryStringLiteralRanges {
      }
  
      fn contains(&self, start: usize) -> bool {
 -        self.0.binary_search_by_key(&start, |range| range.0).is_ok()
-+        self.0.iter().any(|&(begin, end)| begin <= start && start < end)
++        self.0
++            .iter()
++            .any(|&(begin, end)| begin <= start && start < end)
      }
  }
  
-@@ -468,6 +468,14 @@ impl HydraImageStringCollector {
+@@ -468,6 +470,16 @@ impl HydraImageStringCollector {
                  _ => {}
              }
          }
 +        // A samples() map contains URL data, including nested arrays and note keys.
 +        // Keep its complete literal intact instead of compiling URLs as mini patterns.
 +        if name == "samples" {
-+            if let Some(argument @ (Argument::ObjectExpression(_) | Argument::ArrayExpression(_))) = arguments.first() {
++            if let Some(argument @ (Argument::ObjectExpression(_) | Argument::ArrayExpression(_))) =
++                arguments.first()
++            {
 +                let span = argument.span();
 +                self.ranges.push((span.start as usize, span.end as usize));
 +            }
@@ -355,7 +4353,7 @@ index ccbf7d9..a572cac 100644
          // Plugin option keys name parameters. A preset value names a file.
          if matches!(name, "vst" | "vsti")
              && let Some(Argument::ObjectExpression(options)) = arguments.get(1)
-@@ -5222,7 +5230,7 @@ mod tests {
+@@ -5222,7 +5234,7 @@ mod tests {
  
          // The deepest the size limit admits is refused without being printed.
          let deepest = format!("{}x", "if(1)".repeat(65_530));

@@ -17,6 +17,10 @@ Open http://127.0.0.1:18766/. Bachata loads by default and starts automatically 
 
 Both targets use the same Nightshade stage: named-part colors, time/cycle and pitch/MIDI axes, lane labels, and an embedded skinned Fox for every visible lane. Each fox uses its const color; its Run clip and box-to-box jump arc follow the music clock and freeze on pause. Camera controls are hidden by default; **Show camera** reveals the left panel with Fit/Top/Front/Side views, rotation, pan, deep zoom, Fox focus and 35/65/100% fox opacity. **Fullscreen** toggles the viewer window. Stage labels keep a stable projected size as the camera zooms. Mouse-wheel zoom supports the same extended range. On mobile, one-finger drag zooms, two-finger drag pans, pinching zooms toward the point between the fingers, twisting two fingers rotates around the scene, and three-finger drag adjusts yaw and pitch. The browser uses WebGPU with asynchronous readback; native presentation uses Vulkan sharing where available. Const declarations and references use stable name colors, with note identities recovered from exact runtime source contexts when the producer does not supply them. `?mini=1` starts with the earlier mini-notation synth demos. `?hub=wss%3A%2F%2FYOUR_SERVER` connects a native producer instead; HTTPS pages require a secure WebSocket.
 
+## Rustel Studio
+
+Open the same site with `?studio` to run upstream Rustel Studio entirely in the browser. Its real Ratatui editor and menus render through a WASM cell backend, with browser audio, inline scope/piano roll/spectrum, local drafts and scenes, file import/download, a mobile keyboard button and fullscreen. This route does not require WebGPU or a server. Native plugins, device APIs and filesystem workers still need browser-specific adapters. See [the Studio port, build and tests](wasm-studio/README.md).
+
 ## Native
 
 ```powershell

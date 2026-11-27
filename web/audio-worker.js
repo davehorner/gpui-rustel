@@ -16,7 +16,7 @@ function render(data){
   try{
     const start=engine.frame(),pcm=engine.render(4096),events=JSON.parse(engine.events_json());
     pipe.postMessage({kind:'chunk',generation,start,pcm},[pcm.buffer]);
-    self.postMessage({kind:'events',generation,events});
+    self.postMessage({kind:'events',generation,events,visuals:engine.visual_audio_json?JSON.parse(engine.visual_audio_json()):[]});
     if(assets){
       const candidate=engine,store=assets;let inflight=jobs.get(candidate);if(!inflight){inflight=new Map();jobs.set(candidate,inflight);}
       for(const control of JSON.parse(engine.missing_json())){
@@ -28,6 +28,7 @@ function render(data){
 self.onmessage=async({data})=>{
   try{
     if(data.kind==='decoded'){const pending=decodes.get(data.request);if(pending){decodes.delete(data.request);clearTimeout(pending.timer);if(data.error)pending.reject(Error(data.error));else pending.resolve({pcm:data.pcm,sampleRate:data.sampleRate,channels:data.channels});}return;}
+    if(data.kind==='studio-control'&&data.generation===generation&&engine){if(data.control.type==='slider')engine.set_slider(data.control.id,data.control.value);else if(data.control.type==='orbit-gain')engine.set_orbit_gain(data.control.orbit,data.control.gain);return;}
     if(data.kind==='channel'){pipe?.close();pipe=data.port;pipe.onmessage=({data})=>render(data);pipe.start();}
     if(data.kind==='cancel-load'){loadSerial++;return;}
     if(data.kind==='load'){
@@ -35,7 +36,7 @@ self.onmessage=async({data})=>{
       try{
         let metadata=null,store=null;
         if(data.score.format==='javascript'){
-          next=new JavaScriptEngine(data.score.source,data.sampleRate,JSON.stringify(data.score.overrides||{}));metadata=JSON.parse(next.metadata_json());
+          next=new JavaScriptEngine(data.score.source,data.sampleRate,JSON.stringify(data.score.overrides||{}));next.set_visual_capture?.(data.score.studio===true);metadata=JSON.parse(next.metadata_json());
           store=await library.forScore(metadata.samples,data.score.url);store.sampleRate=data.sampleRate;
           const seen=new Set();
           for(let begin=0;begin<64;begin+=4){if(serial!==loadSerial)throw Error('Score load cancelled');await ensure(next,store,JSON.parse(next.probe_json(begin,begin+4)),data.sampleRate,seen);}

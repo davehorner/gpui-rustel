@@ -44,11 +44,11 @@ export class LocalAudioHost {
       }catch(error){this.worker.postMessage({kind:'decoded',request:data.request,error:String(error)});}return;
     }
     if(data.kind==='loaded'&&this.loading?.generation===data.generation){
-      const load=this.loading;clearTimeout(load.timer);this.loading=null;this.progress=null;this.generation=data.generation;this.score=load.score;this.demo=load.demo;this.frame=0;this.events=[];this.stereo=null;this.error=null;this.metadata=data.metadata;this.preparedSampleRate=load.sampleRate;this.preloadedForAudio=!this.node;
+      const load=this.loading;clearTimeout(load.timer);this.loading=null;this.progress=null;this.generation=data.generation;this.score=load.score;this.demo=load.demo;this.frame=0;this.events=[];this.visuals=[];this.stereo=null;this.error=null;this.metadata=data.metadata;this.preparedSampleRate=load.sampleRate;this.preloadedForAudio=!this.node;
       this.node?.port.postMessage({kind:'reset',generation:this.generation});this.node?.port.postMessage({kind:'play',playing:this.playing});
       this.publish();load.resolve();
     }
-    if(data.kind==='events'&&data.generation===this.generation){this.events.push(...data.events);if(this.events.length>2048)this.events.splice(0,this.events.length-2048);}
+    if(data.kind==='events'&&data.generation===this.generation){this.visuals=data.visuals||[];this.events.push(...data.events);if(this.events.length>2048)this.events.splice(0,this.events.length-2048);}
     if(data.kind==='error'&&data.generation!==this.generation&&data.generation!==this.loading?.generation)return;
     if(data.kind==='error'){if(this.loading?.generation===data.generation){const load=this.loading;clearTimeout(load.timer);this.loading=null;this.progress=null;load.reject(Error(data.message));}else this.failure(data.message);}
   }

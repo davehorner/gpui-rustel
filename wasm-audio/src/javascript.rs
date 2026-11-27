@@ -108,6 +108,10 @@ struct Overrides {
 }
 #[wasm_bindgen]
 pub struct JavaScriptEngine {
+    capture_visuals: bool,
+    visual_mask: u64,
+    orbit_gains: [f32; rustel_engine::audio::MAX_ORBITS],
+    visual_history: BTreeMap<u8, Vec<f32>>,
     scheduler: Scheduler,
     backend: ScalarBackend,
     library: Library,
@@ -141,6 +145,7 @@ impl JavaScriptEngine {
         }
         let options = TranspileOptions {
             lane_numbers: (0..lanes.len() as u64).collect(),
+            default_widget_methods: true,
             emit_mini_locations: true,
             ..Default::default()
         };
@@ -175,12 +180,16 @@ impl JavaScriptEngine {
             }
             scheduler.lane_controls_mut().set_transpose(lane, semitones);
         }
-        let metadata = json!({"cps":cps,"source":source,"samples":effects.samples,"preload":effects.preload,"lanes":lanes.iter().enumerate().map(|(i,l)|json!({"id":format!("#{i}"),"label":if l.label.is_empty(){format!("Lane {}",i+1)}else{l.label.clone()},"line":l.line,"transpose":scheduler.lane_controls().transpose_of(i as u32)})).collect::<Vec<_>>()});
+        let metadata = json!({"cps":cps,"source":source,"samples":effects.samples,"preload":effects.preload,"lanes":lanes.iter().enumerate().map(|(i,l)|json!({"id":format!("#{i}"),"label":if l.label.is_empty(){format!("Lane {}",i+1)}else{l.label.clone()},"line":l.line,"source":if l.label.is_empty(){l.body.clone()}else{format!("{}: {}",l.label,l.body)},"transpose":scheduler.lane_controls().transpose_of(i as u32)})).collect::<Vec<_>>()});
         let mut backend = ScalarBackend::new();
         backend.init(sample_rate)?;
         Ok(Self {
             scheduler,
             backend,
+            capture_visuals: false,
+            visual_mask: 0,
+            orbit_gains: [1.0; rustel_engine::audio::MAX_ORBITS],
+            visual_history: BTreeMap::new(),
             library: Library::default(),
             frame: 0,
             sample_rate,
@@ -326,7 +335,7 @@ impl JavaScriptEngine {
                     .ok_or("Invalid event controls")?,
             )
             .map_err(|e| e.to_string())?;
-            let onset = match voice::resolve_hap_value(
+            let mut onset = match voice::resolve_hap_value(
                 &event.value,
                 event.onset_id,
                 event.duration.to_f64() / self.cps,
@@ -343,6 +352,8 @@ impl JavaScriptEngine {
                 Err(voice::VoiceError::NoteOutsideFont(_)) => continue,
                 Err(error) => return Err(error.to_string()),
             };
+            onset.ui_visuals = trace.as_ref().map(|t| t.ui_visuals).unwrap_or(0);
+            self.visual_mask |= onset.ui_visuals;
             let sound = controls["s"]
                 .as_str()
                 .or(controls["sound"].as_str())
@@ -354,7 +365,7 @@ impl JavaScriptEngine {
                 .or((onset.sample.is_none()).then_some(onset.freq_hz))
                 .filter(|v| *v > 0.)
                 .map(|f| 69. + 12. * (f as f64 / 440.).log2());
-            self.events.push(json!({"id":event.onset_id,"lane":format!("#{lane}"),"cycle":event.whole_begin.to_f64(),"duration":event.duration.to_f64(),"pitch":pitch,"original_pitch":null,"sound":sound,"gain":onset.gain,"context":trace.as_ref().map(|t|t.context.clone()).unwrap_or_default(),"block_label":trace.as_ref().and_then(|t|t.label.clone()).unwrap_or_default()}));
+            self.events.push(json!({"id":event.onset_id,"ui_visuals":onset.ui_visuals.to_string(),"lane":format!("#{lane}"),"cycle":event.whole_begin.to_f64(),"duration":event.duration.to_f64(),"pitch":pitch,"original_pitch":null,"sound":sound,"gain":onset.gain,"context":trace.as_ref().map(|t|t.context.clone()).unwrap_or_default(),"block_label":trace.as_ref().and_then(|t|t.label.clone()).unwrap_or_default()}));
             onsets.push(onset);
             if onsets.len() > 4096 {
                 return Err("Too many browser onsets".into());
@@ -365,17 +376,60 @@ impl JavaScriptEngine {
             self.backend.prepare_note(&onset)?;
             self.backend.note(onset);
         }
+        if self.capture_visuals {
+            self.backend.set_ui_visual_capture_mask(self.visual_mask);
+        }
         let mut pcm = vec![0.; frames * 2];
         for start in (0..frames).step_by(128) {
             let end = (start + 128).min(frames);
             self.backend
                 .process_block(&mut pcm[start * 2..end * 2], end - start);
+            if self.capture_visuals {
+                for slot in 0..64 {
+                    if self.visual_mask & (1_u64 << slot) == 0 {
+                        continue;
+                    }
+                    let samples = self.backend.ui_visual_mix(slot, end - start);
+                    if samples.is_empty() {
+                        continue;
+                    }
+                    let history = self.visual_history.entry(slot as u8).or_default();
+                    history.extend(samples.chunks_exact(2).map(|s| (s[0] + s[1]) * 0.5));
+                    if history.len() > 4096 {
+                        history.drain(..history.len() - 4096);
+                    }
+                }
+            }
         }
         if !pcm.iter().all(|s| s.is_finite()) {
             return Err("Nonfinite browser DSP output".into());
         }
         self.frame += frames as u64;
         Ok(pcm)
+    }
+    pub fn set_slider(&mut self, id: &str, value: f64) -> Result<bool, String> {
+        self.runtime.set_slider_value(id, value)
+    }
+    pub fn set_orbit_gain(&mut self, orbit: usize, gain: f32) -> Result<(), String> {
+        if orbit >= self.orbit_gains.len() || !gain.is_finite() || !(0.0..=4.0).contains(&gain) {
+            return Err("Invalid orbit gain".into());
+        }
+        self.orbit_gains[orbit] = gain;
+        self.backend.set_orbit_gains(&self.orbit_gains);
+        Ok(())
+    }
+    pub fn set_visual_capture(&mut self, enabled: bool) {
+        self.capture_visuals = enabled;
+    }
+    pub fn visual_audio_json(&self) -> String {
+        serde_json::to_string(
+            &self
+                .visual_history
+                .iter()
+                .map(|(slot, samples)| json!({"slot":slot,"samples":samples}))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".into())
     }
     pub fn events_json(&self) -> String {
         serde_json::to_string(&self.events).expect("finite onsets")

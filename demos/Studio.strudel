@@ -1,0 +1,10 @@
+// Three voices, built-in synths only. Apply a draft, then press Play.
+setcpm(120/4)
+
+$: note("c1*4").s("sine").decay(0.08).gain(0.22)._scope()
+
+$: note("<[c3,eb3,g3,bb3] [bb2,d3,f3,ab3]>")
+  .s("sawtooth").lpf(sine.range(400,1800)).gain(0.10)._pianoroll()
+
+$: note("c2 ~ eb2 ~ bb1 ~ bb1 ~")
+  .s("square").decay(0.18).gain(0.10)._spectrum()

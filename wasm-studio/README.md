@@ -1,0 +1,23 @@
+# Rustel Studio in the browser
+
+`?studio` loads the actual upstream Studio application in WebAssembly. It does not start GPUI, Nightshade, WebGPU, a server, or a remote terminal.
+
+The source is Rustel `79fd1fb3fd64c0a637f475ad24de675fd5b2ac59`. `BrowserStudio` calls the original `App` input handler and `paint_into`; Ratatui cells, colors and cursor are painted on Canvas2D. The test-only Studio harness is not enabled. The original editor, menus, scenes, selection, undo, syntax, inline widgets and settings remain Rust code.
+
+The browser adapter replaces the terminal loop and native worker boundary. Score evaluation and synthesis use the existing Rustel WASM worker and AudioWorklet. Each visual receiver has its own scalar-audio capture; scope/spectrum are analyzed with upstream Studio's FFT reduction. Master and orbit faders and score sliders go to browser audio. Draft scenes and preferences use local storage; Open/Download handle local files. Browser clipboard, IME input, a mobile keyboard button and fullscreen are handled by the host.
+
+Native plugins, Csound shared libraries, native audio/MIDI device selection, Ableton Link, native recording/export workers and native filesystem browsing are not browser capabilities. The native UI remains present; these host operations require additional browser adapters. Unsupported recording/prebake requests receive failure replies instead of waiting indefinitely. Animated native theme effects are disabled on WASM. This is a browser port of Studio, not a claim of complete native platform parity.
+
+The maintained upstream changes are in `../wasm-audio/patches/browser-portability.patch`. Crossterm is a local MIT-licensed copy of the upstream pinned fork because it needs WASM platform guards; see `vendor/crossterm/BROWSER-PORT.md`. Native terminal behavior is preserved.
+
+Build and check:
+
+```powershell
+python wasm-studio/check.py
+python wasm-studio/build.py
+python wasm-studio/build.py --target nodejs --out target/rustel-browser-studio-test
+node wasm-studio/test-studio.cjs
+python web/build.py --out target/gpui-rustel-web
+```
+
+The whole-site builder publishes versioned Studio assets and the corresponding adapter source alongside the existing engine source and AGPL license. GitHub Pages needs no server-side changes.

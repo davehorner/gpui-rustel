@@ -43,6 +43,10 @@ jobs:
         run: python web/build.py --out dist
       - name: Build Node WASM bindings
         run: python wasm-audio/build.py --target nodejs --out target/rustel-browser-audio-test
+      - name: Check real Studio browser frontend
+        run: |
+          python wasm-studio/build.py --target nodejs --out target/rustel-browser-studio-test
+          node wasm-studio/test-studio.cjs
       - name: Check JavaScript scores and installed PCM
         run: node wasm-audio/test-javascript.cjs
       - name: Check worklet streaming and mini fallback
