@@ -95,12 +95,18 @@ pub fn enrich(snapshot: &mut Snapshot) {
             let identity = event
                 .context
                 .iter()
-                .flat_map(|(from, to)| {
-                    snapshot.bindings.iter().filter(move |b| {
-                        *from >= b.definition_from && *to <= b.definition_to && from < to
-                    })
-                })
-                .min_by_key(|b| b.definition_to - b.definition_from);
+                // Runtime contexts run from the emitting transformations back to
+                // their shared inputs. Preserve that order: a short chord helper
+                // must not steal notes from the instrument derived from it.
+                .find_map(|(from, to)| {
+                    snapshot
+                        .bindings
+                        .iter()
+                        .filter(|b| {
+                            *from >= b.definition_from && *to <= b.definition_to && from < to
+                        })
+                        .min_by_key(|b| b.definition_to - b.definition_from)
+                });
             if let Some(binding) = identity {
                 event.part = binding.name.clone();
                 event.part_color = binding.color;
@@ -122,6 +128,42 @@ pub fn enrich(snapshot: &mut Snapshot) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn emitting_instruments_keep_shared_chords_in_separate_lanes() {
+        let source = "const harmony = chord(\"Am9\"); const keys = harmony.s(\"piano\"); const pad = harmony.s(\"strings\"); $: stack(keys, pad);";
+        let chord = source.find("Am9").unwrap();
+        let events = ["piano", "strings"].map(|sound| {
+            let start = source.find(sound).unwrap();
+            music_link::Event {
+                lane: "#0".into(),
+                sound: sound.into(),
+                context: vec![(start, start + sound.len()), (chord, chord + 3)],
+                ..crate::model::test_event()
+            }
+        });
+        let mut snapshot = Snapshot {
+            source: source.into(),
+            lanes: vec![music_link::Lane {
+                id: "#0".into(),
+                ..Default::default()
+            }],
+            events: events.into(),
+            ..Default::default()
+        };
+        enrich(&mut snapshot);
+        assert_eq!(snapshot.events[0].part, "keys");
+        assert_eq!(snapshot.events[1].part, "pad");
+        assert_eq!(snapshot.events[0].part_color, named_color("keys"));
+        let projected = snapshot.visual_lanes(&["#0".into()], "");
+        assert_ne!(projected.events[0].lane, projected.events[1].lane);
+        assert!(
+            !projected
+                .lanes
+                .iter()
+                .any(|l| l.parts.iter().any(|p| p.name == "harmony"))
+        );
+        assert_eq!(projected.events.len(), 2);
+    }
     #[test]
     fn shadowed_parameters_are_not_colored_as_score_constants() {
         let source = "const bass = note(\"c3\"); const f = bass => bass; $: bass;";

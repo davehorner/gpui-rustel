@@ -509,11 +509,11 @@ impl Stage {
                         if e.rest {
                             0.025
                         } else if active {
-                            0.3
+                            0.04
                         } else {
-                            0.14
+                            0.025
                         },
-                        0.6,
+                        0.34,
                     ],
                     event_color(e, lane),
                 );
