@@ -19,13 +19,35 @@ export async function startStudio(audioVersion,studioVersion){
     const report=error=>{status.textContent=String(error);console.error(error);};
     function resize(){const rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.font='14px ui-monospace,Consolas,monospace';ctx.textBaseline='top';cw=ctx.measureText('M').width;ch=18;width=Math.max(20,Math.min(300,Math.floor(rect.width/cw)));height=Math.max(10,Math.min(120,Math.floor(rect.height/ch)));dirty=true;lastFrame='';}
     new ResizeObserver(resize).observe(canvas);const fit=()=>{root.style.height=`${window.visualViewport?.height||innerHeight}px`;};window.visualViewport?.addEventListener('resize',fit);fit();resize();
-    function paint(){const json=studio.frame(width,height);if(json===lastFrame)return;lastFrame=json;const frame=JSON.parse(json);ctx.clearRect(0,0,canvas.width,canvas.height);for(let i=0;i<frame.cells.length;i++){const [text,fg,bg,flags]=frame.cells[i],x=i%frame.width*cw,y=Math.floor(i/frame.width)*ch;let color=fg||'#abb2bf',background=bg||'#101216';if(flags&64)[color,background]=[background,color];ctx.fillStyle=background;ctx.fillRect(x,y,Math.ceil(cw),ch);if(text.trim()){ctx.fillStyle=color;ctx.fillText(text,x,y+1);}if(flags&8){ctx.fillStyle=color;ctx.fillRect(x,y+ch-2,cw,1);}}if(frame.cursor){ctx.fillStyle='#e7eef9';ctx.fillRect(frame.cursor[0]*cw,frame.cursor[1]*ch,2,ch);}}
+    function paint(){
+      const json=studio.frame(width,height);if(json===lastFrame)return;
+      lastFrame=json;const frame=JSON.parse(json);
+      ctx.globalAlpha=1;ctx.clearRect(0,0,canvas.width,canvas.height);
+      // Paint all backgrounds first: a wide Unicode glyph spans its next cell.
+      for(let i=0;i<frame.cells.length;i++){
+        const [,fg,bg,flags]=frame.cells[i];
+        ctx.fillStyle=flags&64?(fg||'#abb2bf'):(bg||'#101216');
+        ctx.fillRect(i%frame.width*cw,Math.floor(i/frame.width)*ch,Math.ceil(cw),ch);
+      }
+      for(let i=0;i<frame.cells.length;i++){
+        const [text,fg,bg,flags]=frame.cells[i],x=i%frame.width*cw,y=Math.floor(i/frame.width)*ch;
+        if(flags&128)continue;
+        ctx.fillStyle=flags&64?(bg||'#101216'):(fg||'#abb2bf');
+        ctx.globalAlpha=flags&2?.65:1;
+        ctx.font=`${flags&4?'italic ':''}${flags&1?'bold ':''}14px ui-monospace,Consolas,monospace`;
+        if(text.trim())ctx.fillText(text,x,y+1);
+        if(flags&8)ctx.fillRect(x,y+ch-2,cw,1);
+        if(flags&256)ctx.fillRect(x,y+ch*.55,cw,1);
+      }
+      ctx.globalAlpha=1;
+      if(frame.cursor){ctx.fillStyle='#e7eef9';ctx.fillRect(frame.cursor[0]*cw,frame.cursor[1]*ch,2,ch);}
+    }
     const mods=e=>(e.shiftKey?1:0)|(e.ctrlKey?2:0)|(e.altKey?4:0)|(e.metaKey?8:0);
     const event=fn=>{try{fn();dirty=true;dispatch();}catch(e){report(e);}};
     function dispatch(){for(const command of JSON.parse(studio.commands())){if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'interactive'});audio.context.resume().catch(report);}pending=pending.then(async()=>{
       await running;
       if(command.type==='evaluate'){
-        try{await audio.playback(false);await audio.load({format:'javascript',studio:true,source:command.source,url:location.href,overrides:{}},'Studio');await audio.enable();await audio.playback(true);studio.evaluated(command.request,command.revision,command.source,audio.generation,undefined);status.textContent='Playing';}
+        try{await audio.load({format:'javascript',studio:true,source:command.source,url:location.href,overrides:{}},'Studio');await audio.enable();await audio.playback(true);studio.evaluated(command.request,command.revision,command.source,audio.generation,undefined);status.textContent='Playing';}
         catch(error){studio.evaluated(command.request,command.revision,command.source,audio.generation,String(error));report(error);}
       }else if(command.type==='stop'){await audio.playback(false);status.textContent='Stopped';}
       else if(command.type==='orbit-gain'||command.type==='slider'){audio.worker.postMessage({kind:'studio-control',generation:audio.generation,control:command});}
@@ -39,8 +61,9 @@ export async function startStudio(audioVersion,studioVersion){
     root.querySelector('#save').onclick=()=>{const url=URL.createObjectURL(new Blob([studio.source()],{type:'text/plain'})),a=document.createElement('a');a.href=url;a.download='studio.strudel';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
     root.querySelector('#open').onclick=()=>root.querySelector('#studio-file').click();
     root.querySelector('#studio-file').onchange=async e=>{const file=e.target.files[0];if(!file)return;if(file.size>256*1024){report('Score exceeds 256 KiB');return;}const text=await file.text();event(()=>{studio.key('a',2);studio.paste(text);});};
-    function keyboard(e){if(e.isComposing)return;if((e.ctrlKey||e.metaKey)&&['c','x','v'].includes(e.key.toLowerCase()))return;if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey)return;e.preventDefault();event(()=>studio.key(e.key,mods(e)));}
+    function keyboard(e){if(e.isComposing||e.key==='Unidentified'||e.key==='Process')return;if((e.ctrlKey||e.metaKey)&&['c','x','v'].includes(e.key.toLowerCase()))return;if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey)return;e.preventDefault();event(()=>studio.key(e.key,mods(e)));}
     input.addEventListener('keydown',keyboard);canvas.addEventListener('keydown',e=>{if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();event(()=>studio.paste(e.key));}else keyboard(e);});
+    input.addEventListener('beforeinput',e=>{if(e.isComposing)return;const key={deleteContentBackward:'Backspace',deleteContentForward:'Delete',insertLineBreak:'Enter',insertParagraph:'Enter'}[e.inputType];if(key){e.preventDefault();event(()=>studio.key(key,0));}else if(e.inputType==='historyUndo'||e.inputType==='historyRedo'){e.preventDefault();event(()=>studio.key(e.inputType==='historyUndo'?'z':'y',2));}});
     input.addEventListener('input',e=>{if(e.isComposing)return;const value=input.value;input.value='';if(value)event(()=>studio.paste(value));});
     input.addEventListener('compositionend',()=>{const value=input.value;input.value='';if(value)event(()=>studio.paste(value));});
     input.addEventListener('copy',e=>{e.preventDefault();event(()=>studio.key('c',2));e.clipboardData.setData('text/plain',studio.clipboard());});

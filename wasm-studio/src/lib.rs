@@ -58,6 +58,7 @@ impl Studio {
             "Enter" => KeyCode::Enter,
             "Escape" => KeyCode::Esc,
             "Backspace" => KeyCode::Backspace,
+            "Tab" if bits & 1 != 0 => KeyCode::BackTab,
             "Tab" => KeyCode::Tab,
             "Delete" => KeyCode::Delete,
             "Insert" => KeyCode::Insert,
