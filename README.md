@@ -79,3 +79,9 @@ panel below it. A desktop test at phone dimensions does not validate a phone GPU
 The browser renderer uses an 8 MiB SDF atlas (desktop: 343 MiB), smaller lookup
 buffers and reduced environment-lighting filter budgets. Initial rendering
 completion is checked before copying the first frame to isolate device losses.
+
+Mobile browsers use the renderer's compact material profile, preserving the
+animated per-lane foxes, const tints and alpha while avoiding the full advanced
+PBR fragment shader. Desktop/native retain full shading. Browser overrides are
+`?materials=compact` and `?materials=full`; `?safe=1` also selects compact materials
+unless full is explicitly requested. See the renderer README for profile limits.
