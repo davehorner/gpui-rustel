@@ -27,16 +27,6 @@ jobs:
         run: python scripts/prepare.py
       - name: Initialize pinned browser audio dependencies
         run: python wasm-audio/prepare_engine.py
-      - name: Cache complete Rust build outputs
-        uses: actions/cache@v4
-        with:
-          path: |
-            target
-            wasm-audio/target
-          key: pages-target-v1-${{ runner.os }}-rust-1.100.0-nightly-2026-10-31-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/config.toml', '**/rust-toolchain*') }}-${{ github.sha }}
-          restore-keys: |
-            pages-target-v1-${{ runner.os }}-rust-1.100.0-nightly-2026-10-31-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/config.toml', '**/rust-toolchain*') }}-
-            pages-target-v1-${{ runner.os }}-rust-1.100.0-nightly-2026-10-31-
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen-cli@0.2.130
