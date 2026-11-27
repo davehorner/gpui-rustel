@@ -50,6 +50,8 @@ pub struct Stage {
     fox_scale: f32,
     fox_floor: f32,
     camera: CameraPose,
+    camera_zoom_offset: glm::Vec3,
+    camera_reframe: u64,
     label_eye: glm::Vec3,
     label_forward: glm::Vec3,
 }
@@ -159,6 +161,8 @@ impl Stage {
             fox_scale,
             fox_floor,
             label_eye: glm::Vec3::zeros(),
+            camera_zoom_offset: glm::Vec3::zeros(),
+            camera_reframe: 0,
             label_forward: glm::vec3(0., 0., -1.),
             camera: CameraPose {
                 yaw: 0.6,
@@ -389,6 +393,10 @@ impl Stage {
         self.used = 0;
         self.labels_used = 0;
         let frame = Frame::read(&self.shared, &self.settings);
+        if self.camera_reframe != frame.visual.camera_reframe {
+            self.camera_zoom_offset = glm::Vec3::zeros();
+            self.camera_reframe = frame.visual.camera_reframe;
+        }
         if let Some((s, cycle)) = frame.projected() {
             let depth = s.lanes.len().saturating_sub(1) as f32 * 1.6;
             let mut pose = self.camera;
@@ -397,6 +405,7 @@ impl Stage {
             pose.pitch = (pose.pitch + 0.4).clamp(0.15, 1.4);
             pose.target[1] += 1.7;
             pose.target[2] += depth * 0.5;
+            pose.target = (glm::Vec3::from(pose.target) + self.camera_zoom_offset).into();
             if frame.visual.orbit {
                 pose.yaw += (cycle as f32) * 0.18;
             }
@@ -649,6 +658,32 @@ impl ViewportHost for Stage {
         self.host.render()
     }
     fn set_camera(&mut self, pose: CameraPose) {
+        self.camera = pose;
+    }
+    fn set_camera_with_zoom_anchor(&mut self, pose: CameraPose, anchor: Option<[f32; 3]>) {
+        if let Some(anchor) = anchor {
+            let frame = Frame::read(&self.shared, &self.settings);
+            if let Some((snapshot, cycle)) = frame.projected() {
+                let depth = snapshot.lanes.len().saturating_sub(1) as f32 * 1.6;
+                let fit = (depth * 1.2 + 15.).max(19.2) / 4.;
+                let yaw = pose.yaw
+                    + if frame.visual.orbit {
+                        cycle as f32 * 0.18
+                    } else {
+                        0.
+                    };
+                let pitch = (pose.pitch + 0.4).clamp(0.15, 1.4);
+                let shift = gpui_nightshade::input::zoom_anchor_shift(
+                    self.camera.distance * fit,
+                    pose.distance * fit,
+                    yaw,
+                    pitch,
+                    std::f32::consts::FRAC_PI_4,
+                    anchor,
+                );
+                self.camera_zoom_offset += glm::Vec3::from(shift);
+            }
+        }
         self.camera = pose;
     }
     fn request_pick(&mut self, x: u32, y: u32) {
@@ -909,6 +944,55 @@ mod gpu_tests {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         let rgba = ring.take_latest().unwrap().rgba;
+        // The selected focus-plane point must stay beneath an off-center pinch,
+        // using the stage's actual framing rather than the UI's relative radius.
+        let anchor = [0.78, 0.28, 960. / 640.];
+        let camera_state = |stage: &Stage| {
+            let orbit = stage
+                .host
+                .world
+                .storage
+                .query_ref::<&nightshade_camera_controller::contract::PanOrbitCamera>()
+                .iter()
+                .next()
+                .unwrap()
+                .1;
+            (orbit.focus, orbit.yaw, orbit.pitch, orbit.radius)
+        };
+        let (focus, yaw, pitch, radius) = camera_state(&stage);
+        let (_, rotation) = nightshade_camera_controller::contract::compute_pan_orbit_transform(
+            focus, yaw, pitch, radius,
+        );
+        let right = glm::quat_rotate_vec3(&rotation, &glm::vec3(1., 0., 0.));
+        let up = glm::quat_rotate_vec3(&rotation, &glm::vec3(0., 1., 0.));
+        let span = radius * (std::f32::consts::FRAC_PI_4 * 0.5).tan();
+        let point = focus
+            + right * ((2. * anchor[0] - 1.) * span * anchor[2])
+            + up * ((1. - 2. * anchor[1]) * span);
+        let mut zoomed = stage.camera;
+        zoomed.distance *= 0.6;
+        stage.set_camera_with_zoom_anchor(zoomed, Some(anchor));
+        for _ in 0..2 {
+            stage.render().unwrap();
+            let (focus, yaw, pitch, radius) = camera_state(&stage);
+            let (eye, rotation) =
+                nightshade_camera_controller::contract::compute_pan_orbit_transform(
+                    focus, yaw, pitch, radius,
+                );
+            let up = glm::quat_rotate_vec3(&rotation, &glm::vec3(0., 1., 0.));
+            let clip = glm::perspective(anchor[2], std::f32::consts::FRAC_PI_4, 0.001, 1000.)
+                * glm::look_at(&eye, &focus, &up)
+                * glm::vec4(point.x, point.y, point.z, 1.);
+            assert!((0.5 + clip.x / clip.w * 0.5 - anchor[0]).abs() < 0.001);
+            assert!((0.5 - clip.y / clip.w * 0.5 - anchor[1]).abs() < 0.001);
+        }
+        stage.settings.lock().unwrap().camera_reframe += 1;
+        stage.render().unwrap();
+        assert_eq!(
+            stage.camera_zoom_offset,
+            glm::Vec3::zeros(),
+            "Fit/Fox framing resets pinch offset"
+        );
         stage.camera.distance = 0.04;
         stage.render().unwrap();
         let radius = stage

@@ -63,6 +63,10 @@ impl MusicApp {
     }
     fn adjust_camera(&mut self, action: CameraControl, cx: &mut Context<Self>) {
         self.settings.lock().unwrap().orbit = false;
+        if matches!(action, CameraControl::Home | CameraControl::Fox) {
+            let mut settings = self.settings.lock().unwrap();
+            settings.camera_reframe = settings.camera_reframe.wrapping_add(1);
+        }
         let frame = Frame::read(&self.bridge.shared, &self.settings);
         let projected = frame.projected();
         let fit = projected.as_ref().map_or(19.2, |(s, _)| {
