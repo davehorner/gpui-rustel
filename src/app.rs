@@ -6,7 +6,7 @@ use gpui_kit::{
     base::Disableable,
     component::{
         Sizable,
-        button::Button,
+        button::{Button, ButtonVariants},
         input::{Input, InputEvent, InputState},
         menu::{DropdownMenu, PopupMenuItem},
     },
@@ -299,9 +299,15 @@ impl MusicApp {
         ready: bool,
         cx: &mut Context<Self>,
     ) -> Button {
-        Button::new(id).label(label).disabled(!ready).on_click(
-            cx.listener(move |app, _, _, cx| app.send(|c| c.transport = Some(action.clone()), cx)),
-        )
+        Button::new(id)
+            .label(label)
+            .when(id == "play", |button| {
+                button.primary().bg(rgb(0x2563eb)).text_color(rgb(0xffffff))
+            })
+            .disabled(!ready)
+            .on_click(cx.listener(move |app, _, _, cx| {
+                app.send(|c| c.transport = Some(action.clone()), cx)
+            }))
     }
     pub(crate) fn new(
         bridge: Bridge,

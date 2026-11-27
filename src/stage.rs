@@ -244,12 +244,13 @@ impl Stage {
         let mut position = hop.position;
         position[1] += self.fox_floor;
         self.pose(root, position, [self.fox_scale; 3]);
+        // Face along the lane even when an event is held or the next box is behind.
         self.host
             .world
             .storage
             .get_mut::<LocalTransform>(root)
             .unwrap()
-            .rotation = glm::quat_angle_axis(hop.heading, &glm::vec3(0., 1., 0.));
+            .rotation = glm::quat_angle_axis(std::f32::consts::FRAC_PI_2, &glm::vec3(0., 1., 0.));
         let player = self
             .host
             .world
@@ -521,7 +522,6 @@ impl Stage {
                         index,
                         Hop {
                             position: [-6., 0.12, index as f32 * 1.6],
-                            heading: std::f32::consts::FRAC_PI_2,
                         },
                         cycle,
                         color,
@@ -558,7 +558,6 @@ fn pitch_height(pitch: Option<f64>) -> f32 {
 #[derive(Debug)]
 struct Hop {
     position: [f32; 3],
-    heading: f32,
 }
 fn fox_hop(s: &music_link::Snapshot, cycle: f64, lane_index: usize) -> Option<(Hop, u32)> {
     let lane = s.lanes.get(lane_index)?;
@@ -592,13 +591,7 @@ fn fox_hop(s: &music_link::Snapshot, cycle: f64, lane_index: usize) -> Option<(H
     let to = point(b);
     let mut position = std::array::from_fn(|i| from[i] + (to[i] - from[i]) * phase);
     position[1] += 4. * phase * (1. - phase) * 0.85;
-    Some((
-        Hop {
-            position,
-            heading: (to[0] - from[0]).atan2(to[2] - from[2]),
-        },
-        event_color(a, lane_index),
-    ))
+    Some((Hop { position }, event_color(a, lane_index)))
 }
 pub(crate) fn fox_focus_target(s: &music_link::Snapshot, cycle: f64) -> Option<[f32; 3]> {
     let hop = s
