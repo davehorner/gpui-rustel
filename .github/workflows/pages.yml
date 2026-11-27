@@ -58,6 +58,7 @@ jobs:
         run: |
           node web/test-audio-host.mjs
           node web/test-startup.mjs
+          node vendor/gpui-nightshade/web/test-touch.mjs
       - name: Build WASM site
         run: python web/build.py --out dist
       - name: Build Node WASM bindings
