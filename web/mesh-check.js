@@ -2,22 +2,53 @@ import captured from './mesh-pipeline-data.js?v=1';
 const constantFragment=`struct Out {@location(0) color:vec4f,@location(1) entity:f32,@location(2) normal:vec4f,@location(3) velocity:vec2f}; @fragment fn fs_probe()->Out {return Out(vec4f(1,0,0,1),0,vec4f(0,0,1,0),vec2f(0));}`;
 const output=captured.source.match(/struct VertexOutput\s*\{[\s\S]*?\}/)[0];
 const constantVertex=output+` @vertex fn vs_probe(@builtin(vertex_index) i:u32)->VertexOutput {var p=array<vec2f,3>(vec2f(-1,-1),vec2f(3,-1),vec2f(-1,3));var out:VertexOutput;out.position=vec4f(p[i],0.5,1);out.normal=vec3f(0,0,1);out.view_normal=vec3f(0,0,1);out.instance_tint=vec4f(1);out.vertex_color=vec4f(1);out.world_tangent=vec4f(1,0,0,1);return out;}`;
-function oneSampler(source){
-  const pattern=/@group\(2\)\s*@binding\(([2-7])\)\s*var (\w+): sampler;/g;
-  const declarations=[...source.matchAll(pattern)],first=declarations.find(item=>item[1]==='2')[2];
-  for(const item of declarations)if(item[1]!=='2'){source=source.replace(item[0],'');source=source.replaceAll(item[2],first);}
+function functionParts(source){
+  const start=source.indexOf('fn fs_main('),open=source.indexOf('{',start);let end=open+1,depth=1;
+  while(depth){if(source[end]==='{')depth++;else if(source[end]==='}')depth--;end++;}
+  return {start,open,end,body:source.slice(open+1,end-1)};
+}
+function withBody(source,body,parameters=null){const p=functionParts(source);const head=parameters===null?source.slice(p.start,p.open):`fn fs_main(${parameters}) -> FragmentOutput `;return source.slice(0,p.start)+head+'{'+body+'}'+source.slice(p.end);}
+function result(color){return `return FragmentOutput(${color},0.0,vec4<f32>(0.0,0.0,1.0,0.0),vec2<f32>(0.0));`;}
+function perspective(source){return source.replaceAll('@interpolate(linear)','@interpolate(perspective)');}
+function withoutLightLoop(source){const p=functionParts(source),start=p.body.indexOf('loop {');if(start<0)throw Error('Light loop missing');let end=p.body.indexOf('{',start)+1,depth=1;while(depth){if(p.body[end]==='{')depth++;else if(p.body[end]==='}')depth--;end++;}return withBody(source,p.body.slice(0,start)+p.body.slice(end));}
+function withoutIbl(source){let body=functionParts(source).body;for(const name of ['irradiance_map','prefiltered_env','brdf_lut']){const start=body.indexOf('textureSampleLevel('+name+',');if(start<0)throw Error('IBL sample missing: '+name);let end=body.indexOf('(',start)+1,depth=1;while(depth){if(body[end]==='(')depth++;else if(body[end]===')')depth--;end++;}body=body.slice(0,start)+'vec4<f32>(0.03,0.03,0.03,1.0)'+body.slice(end);}return withBody(source,body);}
+function variantSource(test){
+  let source=captured.source;
+  const texture=source.match(/@group\(2\)\s*@binding\(0\)\s*var (\w+)/)[1],sampler=source.match(/@group\(2\)\s*@binding\(2\)\s*var (\w+)/)[1];
+  const input=source.match(/fn fs_main\((\w+):/)[1];
+  switch(test.variant){
+    case 'constant-interface':source=withBody(source,result('vec4<f32>(1.0,0.0,0.0,1.0)'));break;
+    case 'constant-no-input':source=withBody(source,result('vec4<f32>(1.0,0.0,0.0,1.0)'), '');break;
+    case 'linear-only':source=withBody(source,result('vec4<f32>(uv,0.0,1.0)'),'@location(8) @interpolate(linear) uv: vec2<f32>');break;
+    case 'perspective-only':source=perspective(withBody(source,result('vec4<f32>(uv,0.0,1.0)'),'@location(8) @interpolate(linear) uv: vec2<f32>'));break;
+    case 'material-field':source=perspective(withBody(source,result(`materials[${input}.material_id].base_color`)));break;
+    case 'material-copy':source=perspective(withBody(source,`let material = materials[${input}.material_id];`+result('material.base_color')));break;
+    case 'texture-level':source=perspective(withBody(source,result(`textureSampleLevel(${texture},${sampler},${input}.tex_coords,0,0.0)`)));break;
+    case 'texture-grad':source=perspective(withBody(source,result(`textureSampleGrad(${texture},${sampler},${input}.tex_coords,0,dpdx(${input}.tex_coords),dpdy(${input}.tex_coords))`)));break;
+    case 'no-light-loop':source=perspective(withoutLightLoop(source));break;
+    case 'no-ibl':source=perspective(withoutIbl(source));break;
+    case 'perspective':source=perspective(source);break;
+  }
   return source;
 }
 export async function runMeshCheck(record){
   record({rendererRevision:captured.revision,profile:captured.profile,targets:captured.descriptor.fragment.targets});
   const cases=[
     {name:'Simple shaders with exact four mesh render targets',vertex:false,fragment:false},
-    {name:'Simple shaders with component-matched masks and no replace blend',vertex:false,fragment:false,masks:true},
-    {name:'Actual mesh vertex with constant fragment',vertex:true,fragment:false},
-    {name:'Constant vertex with actual compact fragment',vertex:false,fragment:true},
-    {name:'Exact compact mesh vertex and fragment',vertex:true,fragment:true},
-    {name:'Exact compact mesh with one material sampler',vertex:true,fragment:true,sampler:true}
+    {name:'Original module with constant fragment and original input interface',variant:'constant-interface'},
+    {name:'Original module with constant fragment and no fragment inputs',variant:'constant-no-input'},
+    {name:'Exact compact mesh vertex and fragment',variant:'exact'},
+    {name:'Exact shaders with perspective instead of linear interpolation',variant:'perspective'},
+    {name:'Fragment reads only one linear interpolation varying',variant:'linear-only'},
+    {name:'Fragment reads only one perspective interpolation varying',variant:'perspective-only'},
+    {name:'Fragment reads one material storage field directly',variant:'material-field'},
+    {name:'Fragment copies the material struct then reads base color',variant:'material-copy'},
+    {name:'Fragment samples only the material texture array with explicit LOD',variant:'texture-level'},
+    {name:'Fragment samples only the material texture array with gradients',variant:'texture-grad'},
+    {name:'Exact fragment without the direct light loop',variant:'no-light-loop'},
+    {name:'Exact fragment without IBL texture samples',variant:'no-ibl'}
   ];
+  for(const test of cases)if(test.variant){test.vertex=true;test.fragment=true;}
   let failed=0;
   for(const test of cases){
     record({test:test.name,stage:'Requesting device'});let device,cleaning=false;const resources=[];
@@ -41,7 +72,7 @@ export async function runMeshCheck(record){
         }else throw Error('Unhandled binding '+JSON.stringify(entry));
         return {binding:entry.binding,resource};
       })}));
-      const source=test.sampler?oneSampler(captured.source):captured.source;
+      const source=variantSource(test);
       const vertex=device.createShaderModule({code:test.vertex?source:constantVertex}),fragment=device.createShaderModule({code:test.fragment?source:constantFragment});
       const targets=structuredClone(captured.descriptor.fragment.targets);
       if(test.masks){for(const target of targets)delete target.blend;targets[1].writeMask=1;targets[3].writeMask=3;}
