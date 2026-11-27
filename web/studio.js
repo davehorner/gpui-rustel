@@ -10,7 +10,7 @@ export async function startStudio(audioVersion,studioVersion){
     const source=saved||await fetch('./scores/Studio.strudel').then(r=>r.text());
     const studio=new wasm.Studio(source,localStorage.getItem('rustel-studio-workspace-v1')||undefined);window.rustelStudio=studio;
     const style=document.createElement('style');style.textContent=`#studio{position:fixed;inset:0;display:flex;flex-direction:column;background:#101216}#studio header{display:flex;gap:8px;align-items:center;padding:7px;background:#18202d;font:13px system-ui;flex-wrap:wrap}#studio button{color:#e8efff;background:#29384c;border:1px solid #52647d;border-radius:5px;padding:7px 12px}#studio #play{background:#1465db;border-color:#4389ef}#studio canvas{flex:1;min-height:0;width:100%;touch-action:none}#studio-status{margin-left:auto;color:#b3c5dd}#studio-input{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:.01;border:0;padding:0;font-size:16px}`;document.head.append(style);
-    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
+    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
     document.body.append(root);const canvas=root.querySelector('canvas'),ctx=canvas.getContext('2d'),input=root.querySelector('textarea'),status=root.querySelector('#studio-status');
     const {LocalAudioHost}=await import(`./audio-host.js?v=${audioVersion}`);
     let audio=new LocalAudioHost({local_message(topic,value){if(topic==='music/status')status.textContent=String(value);}});audio.tryAutoplay=()=>{};window.rustelStudioAudio=audio;
@@ -44,7 +44,17 @@ export async function startStudio(audioVersion,studioVersion){
     }
     const mods=e=>(e.shiftKey?1:0)|(e.ctrlKey?2:0)|(e.altKey?4:0)|(e.metaKey?8:0);
     const event=fn=>{try{fn();dirty=true;dispatch();}catch(e){report(e);}};
-    function dispatch(){for(const command of JSON.parse(studio.commands())){if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'interactive'});audio.context.resume().catch(report);}pending=pending.then(async()=>{
+    let systemClipboardEvent=false;
+    const pasteText=text=>{if(!text)return;if(new TextEncoder().encode(text).length>256*1024){report('Pasted text exceeds 256 KiB');return;}event(()=>studio.paste(text));};
+    async function pasteClipboard(){
+      try{if(!navigator.clipboard?.readText)throw Error('Clipboard read unavailable');const text=await navigator.clipboard.readText();studio.clipboard_status(text?'':'Clipboard is empty');pasteText(text);}
+      catch(error){input.focus({preventScroll:true});const message='Use Ctrl+V, Command+V, or your keyboard’s Paste action';studio.clipboard_status(message);status.textContent=message;dirty=true;}
+    }
+    root.querySelector('#paste').onclick=pasteClipboard;
+    function dispatch(){for(const command of JSON.parse(studio.commands())){
+      if(command.type==='clipboard-read'){pasteClipboard();continue;}
+      if(command.type==='clipboard-write'){if(!systemClipboardEvent)navigator.clipboard?.writeText(command.text).catch(report);continue;}
+if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'interactive'});audio.context.resume().catch(report);}pending=pending.then(async()=>{
       await running;
       if(command.type==='evaluate'){
         try{await audio.load({format:'javascript',studio:true,source:command.source,url:location.href,overrides:{}},'Studio');await audio.enable();await audio.playback(true);studio.evaluated(command.request,command.revision,command.source,audio.generation,undefined);status.textContent='Playing';}
@@ -66,9 +76,11 @@ export async function startStudio(audioVersion,studioVersion){
     input.addEventListener('beforeinput',e=>{if(e.isComposing)return;const key={deleteContentBackward:'Backspace',deleteContentForward:'Delete',insertLineBreak:'Enter',insertParagraph:'Enter'}[e.inputType];if(key){e.preventDefault();event(()=>studio.key(key,0));}else if(e.inputType==='historyUndo'||e.inputType==='historyRedo'){e.preventDefault();event(()=>studio.key(e.inputType==='historyUndo'?'z':'y',2));}});
     input.addEventListener('input',e=>{if(e.isComposing)return;const value=input.value;input.value='';if(value)event(()=>studio.paste(value));});
     input.addEventListener('compositionend',()=>{const value=input.value;input.value='';if(value)event(()=>studio.paste(value));});
-    input.addEventListener('copy',e=>{e.preventDefault();event(()=>studio.key('c',2));e.clipboardData.setData('text/plain',studio.clipboard());});
-    input.addEventListener('cut',e=>{e.preventDefault();event(()=>studio.key('x',2));e.clipboardData.setData('text/plain',studio.clipboard());});
-    input.addEventListener('paste',e=>{e.preventDefault();event(()=>studio.paste(e.clipboardData.getData('text/plain')));});
+    for(const type of ['copy','cut'])root.addEventListener(type,e=>{
+      e.preventDefault();e.stopPropagation();systemClipboardEvent=true;
+      try{event(()=>studio.key(type==='copy'?'c':'x',2));e.clipboardData?.setData('text/plain',studio.clipboard());}finally{systemClipboardEvent=false;}
+    },true);
+    root.addEventListener('paste',e=>{e.preventDefault();e.stopPropagation();pasteText(e.clipboardData?.getData('text/plain')||'');},true);
     let dragging=false;const point=e=>{const r=canvas.getBoundingClientRect();return [Math.max(0,Math.min(width-1,Math.floor((e.clientX-r.left)/cw))),Math.max(0,Math.min(height-1,Math.floor((e.clientY-r.top)/ch)))];};
     canvas.onpointerdown=e=>{e.preventDefault();canvas.focus();if(e.pointerType==='mouse')input.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);dragging=true;event(()=>studio.mouse('down',...point(e),mods(e)));};
     canvas.onpointermove=e=>{if(dragging)event(()=>studio.mouse('drag',...point(e),mods(e)));};

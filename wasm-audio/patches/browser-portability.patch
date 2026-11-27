@@ -1933,7 +1933,7 @@ index 85d6c27..93b2994 100644
 +[target.'cfg(target_arch = "wasm32")'.dependencies]
 +web-sys = { version = "0.3", features = ["Window", "Storage"] }
 diff --git a/crates/studio/src/app.rs b/crates/studio/src/app.rs
-index 8bca756..00f5a45 100644
+index 8bca756..4de3694 100644
 --- a/crates/studio/src/app.rs
 +++ b/crates/studio/src/app.rs
 @@ -71,7 +71,7 @@ use std::path::PathBuf;
@@ -2016,7 +2016,7 @@ index 8bca756..00f5a45 100644
                  }
              }
  
-@@ -3645,3 +3649,253 @@ mod tests {
+@@ -3645,3 +3649,265 @@ mod tests {
          }
      }
  }
@@ -2033,7 +2033,7 @@ index 8bca756..00f5a45 100644
 +impl BrowserStudio {
 +    pub fn new(source: &str, state: Option<&str>) -> Result<Self, String> {
 +        let mut options = StudioOptions::new("browser");
-+        options.memory_clipboard = true;
++        options.memory_clipboard = false;
 +        options.default_samples = false;
 +        let scenes = match state.and_then(SceneSet::from_browser_state) {
 +            Some(scenes) => scenes,
@@ -2081,7 +2081,12 @@ index 8bca756..00f5a45 100644
 +        self.cursor
 +    }
 +    pub fn clipboard(&mut self) -> String {
-+        self.app.clipboard.get_text().unwrap_or_default()
++        PlatformClipboard::browser_text()
++    }
++    pub fn clipboard_status(&mut self, message: &str) {
++        self.app.clear_error(ErrorOwner::Editor);
++        self.app.status = message.into();
++        self.app.dirty_frame = true;
 +    }
 +    pub fn gain(&self) -> f32 {
 +        self.app.worker.master().gain()
@@ -2094,7 +2099,14 @@ index 8bca756..00f5a45 100644
 +    pub fn commands(&mut self) -> String {
 +        self.app.flush_pending_evaluation();
 +        self.app.flush_pending_sliders();
-+        serde_json::to_string(&self.app.worker.browser_commands()).unwrap_or_else(|_| "[]".into())
++        let mut commands = self.app.worker.browser_commands();
++        if PlatformClipboard::take_browser_read() {
++            commands.push(serde_json::json!({"type":"clipboard-read"}));
++        }
++        if let Some(text) = PlatformClipboard::take_browser_write() {
++            commands.push(serde_json::json!({"type":"clipboard-write","text":text}));
++        }
++        serde_json::to_string(&commands).unwrap_or_else(|_| "[]".into())
 +    }
 +    pub fn evaluated(
 +        &mut self,
@@ -2661,7 +2673,7 @@ index 80324c4..ec9bcd2 100644
  use ratatui::buffer::Buffer;
  use ratatui::layout::Rect;
 diff --git a/crates/studio/src/editor/clipboard.rs b/crates/studio/src/editor/clipboard.rs
-index a7dda4a..411b608 100644
+index a7dda4a..dcdb60b 100644
 --- a/crates/studio/src/editor/clipboard.rs
 +++ b/crates/studio/src/editor/clipboard.rs
 @@ -53,11 +53,13 @@ impl Clipboard for MemoryClipboard {
@@ -2719,30 +2731,50 @@ index a7dda4a..411b608 100644
                                  25 * (attempt as u64 + 1),
                              ));
                          }
-@@ -164,3 +169,25 @@ impl Clipboard for PlatformClipboard {
+@@ -164,3 +169,45 @@ impl Clipboard for PlatformClipboard {
          Ok(())
      }
  }
 +
 +#[cfg(target_arch = "wasm32")]
++std::thread_local! {
++    static BROWSER_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    static BROWSER_TEXT: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
++    static BROWSER_WRITE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
++}
++#[cfg(target_arch = "wasm32")]
 +#[derive(Debug, Default)]
-+pub struct PlatformClipboard(MemoryClipboard);
++pub struct PlatformClipboard;
 +#[cfg(target_arch = "wasm32")]
 +impl PlatformClipboard {
 +    pub fn new() -> Self {
-+        Self::default()
++        Self
 +    }
 +    pub fn system_available(&self) -> bool {
-+        false
++        true
++    }
++    pub fn browser_text() -> String {
++        BROWSER_TEXT.with(|text| text.borrow().clone())
++    }
++    pub fn take_browser_read() -> bool {
++        BROWSER_READ.with(|read| read.replace(false))
++    }
++    pub fn take_browser_write() -> Option<String> {
++        BROWSER_WRITE.with(|write| write.borrow_mut().take())
 +    }
 +}
 +#[cfg(target_arch = "wasm32")]
 +impl Clipboard for PlatformClipboard {
 +    fn get_text(&mut self) -> Result<String, ClipboardError> {
-+        self.0.get_text()
++        BROWSER_READ.with(|read| read.set(true));
++        // Keep the document and its selection intact while the asynchronous
++        // browser read completes. Its text arrives as an ordinary Paste event.
++        Err(ClipboardError("Reading clipboard…".into()))
 +    }
 +    fn set_text(&mut self, text: String) -> Result<(), ClipboardError> {
-+        self.0.set_text(text)
++        BROWSER_TEXT.with(|held| *held.borrow_mut() = text.clone());
++        BROWSER_WRITE.with(|write| *write.borrow_mut() = Some(text));
++        Ok(())
 +    }
 +}
 diff --git a/crates/studio/src/engine.rs b/crates/studio/src/engine.rs

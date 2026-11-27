@@ -44,6 +44,9 @@ impl Studio {
     pub fn clipboard(&mut self) -> String {
         self.inner.clipboard()
     }
+    pub fn clipboard_status(&mut self, message: &str) {
+        self.inner.clipboard_status(message);
+    }
     pub fn gain(&self) -> f32 {
         self.inner.gain()
     }
