@@ -473,7 +473,7 @@ impl Snapshot {
                     if output.lanes.len() >= 256 { break; }
                     let id = virtual_id(&lane.id, &part.name);
                     destinations.insert((lane.id.clone(), part.name.clone()), id.clone());
-                    output.lanes.push(Lane { id, label: format!("  ↳ {}{}", part.name, if part.helper {" (const)"} else {""}), source: part.name.clone(), ..Default::default() });
+                    output.lanes.push(Lane { id, label: format!("  ↳ {}{}", part.name, if part.helper {" (const)"} else {""}), source: part.name.clone(), parts: vec![part.clone()], ..Default::default() });
                 }
             }
         }

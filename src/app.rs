@@ -41,6 +41,7 @@ pub(crate) struct MusicApp {
     viewport: Entity<NightshadeViewport>,
     focused: String,
     source_open: bool,
+    camera_controls_open: bool,
     source_scroll: ScrollHandle,
     drag: Option<Point<Pixels>>,
     tempo: Entity<InputState>,
@@ -390,6 +391,7 @@ impl MusicApp {
             viewport,
             focused: String::new(),
             source_open: false,
+            camera_controls_open: false,
             source_scroll: ScrollHandle::new(),
             drag: None,
             tempo,
@@ -578,6 +580,32 @@ impl Render for MusicApp {
                         cx.notify();
                     })),
             )
+            .when(v.mode == 0, |toolbar| {
+                toolbar.child(
+                    Button::new("camera-toggle")
+                        .label(if self.camera_controls_open {
+                            "Hide camera"
+                        } else {
+                            "Show camera"
+                        })
+                        .on_click(cx.listener(|app, _, _, cx| {
+                            app.camera_controls_open = !app.camera_controls_open;
+                            cx.notify();
+                        })),
+                )
+            })
+            .child(
+                Button::new("fullscreen")
+                    .label(if window.is_fullscreen() {
+                        "Exit fullscreen"
+                    } else {
+                        "Fullscreen"
+                    })
+                    .on_click(cx.listener(|_, _, window, cx| {
+                        window.toggle_fullscreen();
+                        cx.notify();
+                    })),
+            )
             .child(
                 Button::new("reset-view")
                     .label("Reset flat view")
@@ -611,7 +639,7 @@ impl Render for MusicApp {
             .overflow_hidden()
             .relative()
             .child(content)
-            .when(v.mode == 0, |scene| {
+            .when(v.mode == 0 && self.camera_controls_open, |scene| {
                 scene.child(self.camera_controls(v.fox_opacity, cx))
             })
             .on_mouse_down(

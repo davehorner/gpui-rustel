@@ -50,7 +50,8 @@ pub struct Stage {
     fox_scale: f32,
     fox_floor: f32,
     camera: CameraPose,
-    label_scale: f32,
+    label_eye: glm::Vec3,
+    label_forward: glm::Vec3,
 }
 impl Stage {
     #[cfg(not(target_arch = "wasm32"))]
@@ -157,7 +158,8 @@ impl Stage {
             foxes: vec![],
             fox_scale,
             fox_floor,
-            label_scale: 2.,
+            label_eye: glm::Vec3::zeros(),
+            label_forward: glm::vec3(0., 0., -1.),
             camera: CameraPose {
                 yaw: 0.6,
                 pitch: 0.35,
@@ -375,7 +377,13 @@ impl Stage {
                 .cache
                 .set_text(index, text);
         }
-        self.pose(entity, position, [self.label_scale; 3]);
+        let scale = label_scale_for_camera(
+            position,
+            self.label_eye,
+            self.label_forward,
+            self.host.renderer().surface_config.height,
+        );
+        self.pose(entity, position, [scale; 3]);
     }
     fn update(&mut self) {
         self.used = 0;
@@ -386,9 +394,6 @@ impl Stage {
             let mut pose = self.camera;
             // Fit determines the initial view, not a minimum zoom distance.
             pose.distance *= (depth * 1.2 + 15.).max(19.2) / 4.;
-            self.label_scale = pose.distance * 2. * (std::f32::consts::FRAC_PI_8).tan()
-                / self.host.renderer().surface_config.height.max(1) as f32
-                * 70.;
             pose.pitch = (pose.pitch + 0.4).clamp(0.15, 1.4);
             pose.target[1] += 1.7;
             pose.target[2] += depth * 0.5;
@@ -428,6 +433,8 @@ impl Stage {
                         orbit.pitch,
                         orbit.radius,
                     );
+                self.label_eye = translation;
+                self.label_forward = glm::normalize(&(glm::Vec3::from(pose.target) - translation));
                 self.host.world.storage.set(
                     camera,
                     LocalTransform {
@@ -551,6 +558,16 @@ impl Stage {
         }
     }
 }
+// Screen-space label sizing uses the label's own view depth, not orbit radius.
+fn label_scale_for_camera(
+    position: [f32; 3],
+    eye: glm::Vec3,
+    forward: glm::Vec3,
+    height: u32,
+) -> f32 {
+    let depth = glm::dot(&(glm::Vec3::from(position) - eye), &forward).max(0.05);
+    depth * 2. * std::f32::consts::FRAC_PI_8.tan() / height.max(1) as f32 * 70.
+}
 fn pitch_height(pitch: Option<f64>) -> f32 {
     0.2 + ((pitch.unwrap_or(48.) - 36.) / 12.).clamp(0., 8.) as f32 * 0.6
 }
@@ -651,6 +668,42 @@ impl ViewportHost for Stage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn zoom_keeps_label_pixel_size_stable() {
+        let position = [6., 0., -8.];
+        let projection = glm::perspective(1., std::f32::consts::FRAC_PI_4, 0.001, 1000.);
+        for eye in [glm::vec3(0., 0., 10.), glm::vec3(0., 0., 0.04)] {
+            let scale = label_scale_for_camera(position, eye, glm::vec3(0., 0., -1.), 480);
+            let bottom =
+                projection * glm::vec4(position[0] - eye.x, -eye.y, position[2] - eye.z, 1.);
+            let top =
+                projection * glm::vec4(position[0] - eye.x, scale - eye.y, position[2] - eye.z, 1.);
+            let pixels = (top.y / top.w - bottom.y / bottom.w) * 240.;
+            assert!(
+                (pixels - 70.).abs() < 0.01,
+                "label shrank to {pixels} pixels"
+            );
+        }
+    }
+    #[test]
+    fn expanded_const_lane_keeps_idle_fox_color() {
+        let color = music_link::named_color("bass");
+        let snapshot = music_link::Snapshot {
+            lanes: vec![music_link::Lane {
+                id: "#0".into(),
+                parts: vec![music_link::NamedPart {
+                    name: "bass".into(),
+                    color,
+                    helper: false,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let expanded = snapshot.visual_lanes(&["#0".into()], "");
+        assert_eq!(expanded.lanes[1].parts[0].color, color);
+        assert_eq!(expanded.lanes[1].parts[0].name, "bass");
+    }
     #[test]
     fn fox_lands_on_boxes_and_hops_on_the_audio_clock() {
         let s = music_link::Snapshot {
