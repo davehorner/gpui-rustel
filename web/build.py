@@ -1,6 +1,6 @@
 """Build the shared GPUI application for the browser and generate its JS bindings."""
 from pathlib import Path
-import argparse,os,shutil,subprocess,tomllib,zipfile,json,hashlib,sys
+import argparse,os,shutil,subprocess,tomllib,json,hashlib,sys
 ROOT=Path(__file__).resolve().parents[1]
 APP=ROOT
 TOOLCHAIN="nightly-2026-10-31"
@@ -47,8 +47,5 @@ def main():
     for name in ["Cargo.toml","Cargo.lock","LICENSE","README.md","prepare_engine.py","build.py"]:shutil.copyfile(audio/name,source/name)
     shutil.copytree(audio/"src",source/"src",dirs_exist_ok=True)
     shutil.copytree(audio/"patches",source/"patches",dirs_exist_ok=True)
-    with zipfile.ZipFile(args.out.with_suffix(".zip"),"w",zipfile.ZIP_DEFLATED,compresslevel=9) as bundle:
-        for file in args.out.rglob("*"):
-            if file.is_file():bundle.write(file,file.relative_to(args.out))
     print(f"Built {args.out}\nServe: python gpui-rustel/web/serve.py --directory {args.out}")
 if __name__=="__main__":main()
