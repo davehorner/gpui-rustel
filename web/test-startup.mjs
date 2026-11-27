@@ -10,6 +10,8 @@ globalThis.document={createElement:()=>new Element()};globalThis.devicePixelRati
 Object.defineProperty(globalThis,'navigator',{value:{userAgent:'Android Chrome',gpu:{requestAdapter:async()=>adapter},clipboard:{writeText:async()=>{}}},configurable:true});
 globalThis.location={search:'',reload(){throw Error('unexpected reload');}};globalThis.window=new EventTarget();
 const boot=new Element(),diag=startup(boot,'test','one');await diag.check();diag.appReady();assert.equal(boot.hidden,false,'run() returning must not hide the startup screen');
+const checkpoint=new Event('nightshade-stage');checkpoint.detail={stage:'starting',message:'Composing shader',wasmMemoryBytes:134217728};window.dispatchEvent(checkpoint);
+const saved=JSON.parse(data.get('test-startup'));assert.equal(saved.wasmMemoryBytes,134217728);assert.equal(saved.phase,'Composing shader');assert.ok(saved.checkpoints.includes('Composing shader'));
 const ready=new Event('nightshade-stage');ready.detail={stage:'ready',message:'frame received'};window.dispatchEvent(ready);assert.equal(boot.hidden,true);
 const failed=new Event('nightshade-stage');failed.detail={stage:'error',message:'GPU device lost'};window.dispatchEvent(failed);assert.equal(boot.hidden,false);assert.match(boot.children[0].textContent,/GPU device lost/);
 assert.match(boot.children[2].children[1].textContent,/Android Chrome/);

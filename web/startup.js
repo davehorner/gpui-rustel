@@ -16,7 +16,7 @@ export function startup(boot,name,build) {
   for(const button of [start,copy,probe]){button.style.cssText='font:inherit;padding:8px 12px';controls.append(button);}
   boot.style.cssText+=';z-index:2147483647;overflow:auto';boot.replaceChildren(status,controls,details);
   function record(message){state.lines.push(typeof message==='string'?message:JSON.stringify(message));report.textContent=JSON.stringify(state,null,2);}
-  function phase(message){state.phase=message;status.textContent=`${name}: ${message}`;record(message);try{localStorage.setItem(key,JSON.stringify({build,phase:message,pending:!waitingForUser,time:Date.now()}));}catch{}}
+  function phase(message){state.phase=message;status.textContent=`${name}: ${message}`;record(message);try{localStorage.setItem(key,JSON.stringify({build,phase:message,pending:!waitingForUser,wasmMemoryBytes:state.wasmMemoryBytes,checkpoints:state.lines.slice(-12),time:Date.now()}));}catch{}}
   function fail(error){state.error??=String(error?.stack||error);boot.hidden=false;status.textContent=`${name} could not start.\n${state.error}`;details.open=true;record(String(error));try{localStorage.setItem(key,JSON.stringify({build,phase:state.phase,pending:false,error:state.error}));}catch{}}
   let appReady=false,frameReady=false,waitingForUser=false;
   function finish(){if(!appReady||!frameReady||state.error)return;state.ready=true;phase('Ready');try{localStorage.setItem(key,JSON.stringify({build,phase:'Ready',pending:false}));}catch{}boot.hidden=true;}
@@ -25,7 +25,8 @@ export function startup(boot,name,build) {
   window.addEventListener('unhandledrejection',event=>fail(event.reason));
   for(const eventName of ['nightshade-panic','rustel-panic'])window.addEventListener(eventName,event=>{state.error=null;fail(event.detail);});
   window.addEventListener('nightshade-stage',event=>{
-    const {stage,message}=event.detail||{};
+    const {stage,message,wasmMemoryBytes}=event.detail||{};
+    if(wasmMemoryBytes)state.wasmMemoryBytes=wasmMemoryBytes;
     if(stage==='error')fail(message);
     else if(stage==='ready'){frameReady=true;record(message);finish();}
     else phase(message);
