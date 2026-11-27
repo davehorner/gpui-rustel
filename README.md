@@ -85,3 +85,7 @@ animated per-lane foxes, const tints and alpha while avoiding the full advanced
 PBR fragment shader. Desktop/native retain full shading. Browser overrides are
 `?materials=compact` and `?materials=full`; `?safe=1` also selects compact materials
 unless full is explicitly requested. See the renderer README for profile limits.
+
+`mesh-check.html` reproduces the captured compact opaque mesh pipeline without
+WASM/audio and compares actual vertex/fragment stages, target state and sampler
+variants using small zero-filled resources. It preserves per-case GPU errors.
