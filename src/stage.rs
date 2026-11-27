@@ -592,7 +592,14 @@ fn fox_hop(s: &music_link::Snapshot, cycle: f64, lane_index: usize) -> Option<(H
         .iter()
         .filter(|e| e.lane == lane.id && !e.rest)
         .collect();
-    events.sort_by(|a, b| a.cycle.total_cmp(&b.cycle).then(a.id.cmp(&b.id)));
+    // One landing per chord: keep its highest note rather than whichever
+    // voice happened to receive the first onset ID.
+    events.sort_by(|a, b| {
+        a.cycle
+            .total_cmp(&b.cycle)
+            .then_with(|| pitch_height(b.pitch).total_cmp(&pitch_height(a.pitch)))
+            .then(a.id.cmp(&b.id))
+    });
     events.dedup_by(|a, b| (a.cycle - b.cycle).abs() < 0.00001);
     let index = events.iter().rposition(|e| e.cycle <= cycle)?;
     let a = events[index];
@@ -605,12 +612,11 @@ fn fox_hop(s: &music_link::Snapshot, cycle: f64, lane_index: usize) -> Option<(H
     } else {
         0.
     };
-    let lane_index_f = lane_index as f32;
     let point = |e: &music_link::Event| {
         [
             (e.cycle - cycle) as f32 * 3. - 6. + (e.duration as f32 * 3.).clamp(0.08, 18.) / 2.,
-            pitch_height(e.pitch) + 0.17,
-            lane_index_f * 1.6,
+            pitch_height(e.pitch) + 0.04,
+            lane_index as f32 * 1.6,
         ]
     };
     let from = point(a);
@@ -740,7 +746,7 @@ mod tests {
         assert_eq!(expanded.lanes[1].parts[0].name, "bass");
     }
     #[test]
-    fn fox_lands_on_boxes_and_hops_on_the_audio_clock() {
+    fn fox_lands_above_the_highest_chord_note_and_hops_on_the_audio_clock() {
         let s = music_link::Snapshot {
             lanes: vec![music_link::Lane {
                 id: "#0".into(),
@@ -766,11 +772,18 @@ mod tests {
             ],
             ..Default::default()
         };
+        let mut s = s;
+        let mut chord_top = s.events[0].clone();
+        chord_top.id = 99;
+        chord_top.pitch = Some(67.);
+        s.events.push(chord_top);
         let a = fox_hop(&s, 0., 0).unwrap().0;
+        assert!((a.position[1] - pitch_height(Some(67.)) - 0.04).abs() < 0.0001);
+        assert_eq!(a.position[2], 0.);
         let mid = fox_hop(&s, 0.9375, 0).unwrap().0;
         let b = fox_hop(&s, 1., 0).unwrap().0;
         assert!((mid.position[1] - (a.position[1] + b.position[1]) / 2. - 0.85).abs() < 0.0001);
-        assert!((b.position[1] - pitch_height(Some(72.)) - 0.17).abs() < 0.0001);
+        assert!((b.position[1] - pitch_height(Some(72.)) - 0.04).abs() < 0.0001);
         assert_eq!(
             fox_hop(&s, 0.9375, 0).unwrap().0.position,
             mid.position,
