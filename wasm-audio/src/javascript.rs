@@ -180,7 +180,7 @@ impl JavaScriptEngine {
             }
             scheduler.lane_controls_mut().set_transpose(lane, semitones);
         }
-        let metadata = json!({"cps":cps,"source":source,"samples":effects.samples,"preload":effects.preload,"lanes":lanes.iter().enumerate().map(|(i,l)|json!({"id":format!("#{i}"),"label":if l.label.is_empty(){format!("Lane {}",i+1)}else{l.label.clone()},"line":l.line,"source":if l.label.is_empty(){l.body.clone()}else{format!("{}: {}",l.label,l.body)},"transpose":scheduler.lane_controls().transpose_of(i as u32)})).collect::<Vec<_>>()});
+        let metadata = json!({"cps":cps,"source":source,"samples":effects.samples,"preload":effects.preload,"lanes":lanes.iter().enumerate().map(|(i,l)|json!({"id":format!("#{i}"),"label":if l.label.is_empty(){format!("Lane {}",i+1)}else{l.label.clone()},"line":l.line,"transpose":scheduler.lane_controls().transpose_of(i as u32)})).collect::<Vec<_>>()});
         let mut backend = ScalarBackend::new();
         backend.init(sample_rate)?;
         Ok(Self {
