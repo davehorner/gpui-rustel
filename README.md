@@ -89,3 +89,7 @@ unless full is explicitly requested. See the renderer README for profile limits.
 `mesh-check.html` reproduces the captured compact opaque mesh pipeline without
 WASM/audio and compares actual vertex/fragment stages, target state and sampler
 variants using small zero-filled resources. It preserves per-case GPU errors.
+
+The browser mesh path reconstructs affine UVs and transparency depth from
+perspective varyings to work around the reproduced Adreno pipeline failure.
+`interpolation-check.html` checks equivalence against hardware-linear interpolation.
