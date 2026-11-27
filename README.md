@@ -69,7 +69,13 @@ per color space (about 43 MiB total with mipmaps), replacing the desktop-sized
 2.7 GiB reservation. Native material texture sizing is unchanged.
 
 For startup failures, open `?diagnostics=1` and use **Copy diagnostics** before
-starting the app. This lightweight screen reports GPU capabilities and the last
-startup stage without loading either WASM engine. It does not transmit reports.
+starting the app. It pauses before GPU calls or loading either WASM engine.
+`diagnostics.html` reads the saved startup stage without GPU calls.
+`gpu-check.html` explicitly tests copy/readback, indirect drawing and simultaneous
+GPU devices without a scene, GPUI, WASM or audio. Reports are copied manually.
 On narrow screens the stage uses the full width; **Show code** opens the source
 panel below it. A desktop test at phone dimensions does not validate a phone GPU.
+
+The browser renderer uses an 8 MiB SDF atlas (desktop: 343 MiB), smaller lookup
+buffers and reduced environment-lighting filter budgets. Initial rendering
+completion is checked before copying the first frame to isolate device losses.
