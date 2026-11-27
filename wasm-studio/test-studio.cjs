@@ -28,4 +28,13 @@ assert(JSON.parse(clipboard.commands()).some(c=>c.type==='clipboard-read'));
 const pasted='first line\n🎵 second line\n';clipboard.paste(pasted);assert.equal(clipboard.source(),pasted);
 clipboard.key('a',2);clipboard.key('c',2);const copied=JSON.parse(clipboard.commands()).find(c=>c.type==='clipboard-write');
 assert.equal(copied.text,pasted);assert.equal(clipboard.clipboard(),pasted);assert(!JSON.parse(clipboard.commands()).some(c=>c.type==='clipboard-read'));clipboard.free();
+const bachataSource=fs.readFileSync(path.resolve(__dirname,'../demos/Bachata.strudel'),'utf8');
+const bachata=new Studio(bachataSource);bachata.play();assert(JSON.parse(bachata.commands()).some(c=>c.type==='evaluate'),'Unmodified Bachata must pass Studio preflight');bachata.free();
+for(const newline of ['\n','\r\n','\u2028','\u2029']){
+ const continued=new Studio('note("c4 '+String.fromCharCode(92)+newline+' e4").s("sine")');continued.play();assert(JSON.parse(continued.commands()).some(c=>c.type==='evaluate'),'JS line continuation was rejected');continued.free();
+ const joined=new Studio('note("c'+String.fromCharCode(92)+newline+'4").s("sine")');joined.play();assert(JSON.parse(joined.commands()).some(c=>c.type==='evaluate'),'Continued token must stay joined');joined.free();
+}
+const invalid=new Studio('note("c4 '+String.fromCharCode(92)+'\r\n z9").s("sine")');invalid.play();assert(!JSON.parse(invalid.commands()).some(c=>c.type==='evaluate'));
+const diagnostic=JSON.parse(invalid.frame(150,15)).cells.slice(-300,-150).map(c=>c[0]).join('');assert.match(diagnostic,/2:2.*not a note: "z9"/);invalid.free();
+studio.toggle_zen();assert.equal(screen().zen,true);studio.toggle_zen();assert.equal(screen().zen,false);assert.match(text(),/File.*Edit/);
 studio.free();console.log('PASS: real Studio editor, undo, menus, evaluate/stop, visuals and workspace restore');

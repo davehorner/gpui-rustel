@@ -26,5 +26,9 @@ assert.notDeepEqual(taps[0].samples,taps[1].samples);
 const masks=new Set(JSON.parse(visuals.events_json()).map(e=>e.ui_visuals));assert(masks.has('1')&&masks.has('2'));
 visuals.set_orbit_gain(0,0);assert(visuals.render(4096).some(v=>Math.abs(v)>.001),"muting one orbit must leave its sibling audible");
 visuals.set_orbit_gain(1,0);assert(visuals.render(4096).every(v=>Math.abs(v)<.00001));visuals.free();
+for(const root of ['F','C']){
+ const chords=['maj7','^7'].map(suffix=>{const e=new JavaScriptEngine(`chord("${root}${suffix}").dict("ireal").voicing().s("sine")`,48000,'{}');const notes=JSON.parse(e.probe_json(0,1)).map(v=>v.note);e.free();return notes;});
+ assert(chords[0].length>0,'major-seventh alias must produce notes');assert.deepEqual(chords[0],chords[1]);
+}
 assert.throws(()=>new JavaScriptEngine('while(true){}',48000,'{}'));
 console.log(JSON.stringify({demos:reports,installedPcm:true,scoreEffects:true,runawayJavascriptRefused:true},null,2));

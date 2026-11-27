@@ -10,7 +10,7 @@ export async function startStudio(audioVersion,studioVersion){
     const source=saved||await fetch('./scores/Studio.strudel').then(r=>r.text());
     const studio=new wasm.Studio(source,localStorage.getItem('rustel-studio-workspace-v1')||undefined);window.rustelStudio=studio;
     const style=document.createElement('style');style.textContent=`#studio{position:fixed;inset:0;display:flex;flex-direction:column;background:#101216}#studio header{display:flex;gap:8px;align-items:center;padding:7px;background:#18202d;font:13px system-ui;flex-wrap:wrap}#studio button{color:#e8efff;background:#29384c;border:1px solid #52647d;border-radius:5px;padding:7px 12px}#studio #play{background:#1465db;border-color:#4389ef}#studio canvas{flex:1;min-height:0;width:100%;touch-action:none}#studio-status{margin-left:auto;color:#b3c5dd}#studio-input{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:.01;border:0;padding:0;font-size:16px}`;document.head.append(style);
-    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
+    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><button id="zen" aria-pressed="false">Zen</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
     document.body.append(root);const canvas=root.querySelector('canvas'),ctx=canvas.getContext('2d'),input=root.querySelector('textarea'),status=root.querySelector('#studio-status');
     const {LocalAudioHost}=await import(`./audio-host.js?v=${audioVersion}`);
     let audio=new LocalAudioHost({local_message(topic,value){if(topic==='music/status')status.textContent=String(value);}});audio.tryAutoplay=()=>{};window.rustelStudioAudio=audio;
@@ -22,6 +22,7 @@ export async function startStudio(audioVersion,studioVersion){
     function paint(){
       const json=studio.frame(width,height);if(json===lastFrame)return;
       lastFrame=json;const frame=JSON.parse(json);
+      const zen=root.querySelector('#zen');zen.textContent=frame.zen?'Exit Zen':'Zen';zen.setAttribute('aria-pressed',String(frame.zen));
       ctx.globalAlpha=1;ctx.clearRect(0,0,canvas.width,canvas.height);
       // Paint all backgrounds first: a wide Unicode glyph spans its next cell.
       for(let i=0;i<frame.cells.length;i++){
@@ -65,6 +66,7 @@ if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'i
       dirty=true;
     }).catch(report);}}
     root.querySelector('#play').onclick=()=>{event(()=>studio.play());};
+    root.querySelector('#zen').onclick=()=>event(()=>studio.toggle_zen());
     root.querySelector('#stop').onclick=()=>event(()=>studio.stop());
     root.querySelector('#keyboard').onclick=()=>input.focus();
     root.querySelector('#fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():root.requestFullscreen();

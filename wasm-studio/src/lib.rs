@@ -38,6 +38,9 @@ impl Studio {
     pub fn stop(&mut self) -> Result<(), JsValue> {
         on_caller_stack(|| self.inner.stop()).map_err(error)
     }
+    pub fn toggle_zen(&mut self) {
+        on_caller_stack(|| self.inner.toggle_zen());
+    }
     pub fn state(&self) -> String {
         self.inner.state()
     }
@@ -166,7 +169,7 @@ impl Studio {
             .iter()
             .map(|c| json!([c.symbol(), color(c.fg), color(c.bg), c.modifier.bits()]))
             .collect::<Vec<_>>();
-        Ok(json!({"width":buffer.area.width,"height":buffer.area.height,"cells":cells,"cursor":self.inner.cursor()}).to_string())
+        Ok(json!({"width":buffer.area.width,"height":buffer.area.height,"cells":cells,"cursor":self.inner.cursor(),"zen":self.inner.zen()}).to_string())
     }
 }
 fn color(value: Color) -> String {

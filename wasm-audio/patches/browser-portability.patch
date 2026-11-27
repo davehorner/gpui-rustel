@@ -130,6 +130,77 @@ index 0ab7621..4cdcf2d 100644
          let far = scale_offset("C:major", 1e9, "c3").expect("a large offset resolves");
          assert!(
              started.elapsed() < std::time::Duration::from_secs(2),
+diff --git a/crates/core/src/voicings.rs b/crates/core/src/voicings.rs
+index 683478d..f08b8fa 100644
+--- a/crates/core/src/voicings.rs
++++ b/crates/core/src/voicings.rs
+@@ -39,6 +39,16 @@ struct Dictionaries {
+     pinned_default: String,
+ }
+ 
++fn add_major_seventh_aliases<T: Clone>(symbols: &mut HashMap<String, T>) {
++    for (alias, canonical) in [("maj7", "^7"), ("maj7#11", "^7#11"), ("maj7#5", "^7#5")] {
++        if !symbols.contains_key(alias)
++            && let Some(shape) = symbols.get(canonical).cloned()
++        {
++            symbols.insert(alias.into(), shape);
++        }
++    }
++}
++
+ fn dictionaries() -> &'static Dictionaries {
+     static DICTS: OnceLock<Dictionaries> = OnceLock::new();
+     DICTS.get_or_init(|| {
+@@ -63,6 +73,7 @@ fn dictionaries() -> &'static Dictionaries {
+                     .collect();
+                 symbols.insert(symbol.clone(), voicings);
+             }
++            add_major_seventh_aliases(&mut symbols);
+             dicts.insert(name.clone(), symbols);
+         }
+         Dictionaries {
+@@ -174,7 +185,7 @@ fn legacy_dictionaries() -> &'static LegacyDictionaries {
+     static DICTS: OnceLock<LegacyDictionaries> = OnceLock::new();
+     DICTS.get_or_init(|| {
+         let parsed: serde_json::Value =
+-            serde_json::from_str(PINNED_REGISTRY).expect("pinned voicing-registry.json parses");
++            serde_json::from_str(registry_json()).expect("pinned voicing-registry.json parses");
+         let mut dicts = HashMap::new();
+         for (name, entry) in parsed["registry"].as_object().expect("registry object") {
+             let dictionary = parse_legacy_dictionary(
+@@ -193,11 +204,30 @@ fn legacy_dictionaries() -> &'static LegacyDictionaries {
+     })
+ }
+ 
+-/// Exact pinned registry data used to create the JavaScript-visible
++/// Pinned registry data, with conventional major-seventh aliases, for the JavaScript-visible
+ /// compatibility object without evaluating the former 114 KiB bundle.
+ #[doc(hidden)]
+ pub fn registry_json() -> &'static str {
+-    PINNED_REGISTRY
++    static REGISTRY: OnceLock<String> = OnceLock::new();
++    REGISTRY.get_or_init(|| {
++        let mut registry: serde_json::Value =
++            serde_json::from_str(PINNED_REGISTRY).expect("pinned registry");
++        for entry in registry["registry"]
++            .as_object_mut()
++            .expect("registry")
++            .values_mut()
++        {
++            let symbols = entry["dictionary"].as_object_mut().expect("dictionary");
++            for (alias, canonical) in [("maj7", "^7"), ("maj7#11", "^7#11"), ("maj7#5", "^7#5")] {
++                if !symbols.contains_key(alias)
++                    && let Some(shape) = symbols.get(canonical).cloned()
++                {
++                    symbols.insert(alias.into(), shape);
++                }
++            }
++        }
++        registry.to_string()
++    })
+ }
+ 
+ pub fn set_default_voicings(name: &str) {
 diff --git a/crates/csound/src/engine.rs b/crates/csound/src/engine.rs
 index 28bdfcc..4c14a1a 100644
 --- a/crates/csound/src/engine.rs
@@ -530,6 +601,127 @@ index 55e69b1..66b254e 100644
  
  /// How often a participant says it is alive.
  const ALIVE_INTERVAL: Duration = Duration::from_secs(1);
+diff --git a/crates/runtime/src/lint.rs b/crates/runtime/src/lint.rs
+index 11ce394..13192f3 100644
+--- a/crates/runtime/src/lint.rs
++++ b/crates/runtime/src/lint.rs
+@@ -330,12 +330,20 @@ fn lint_with_scan(
+         if !is_pattern && !raw_named_argument {
+             continue;
+         }
+-        let content = &source[literal.content.clone()];
++        let raw = &source[literal.content.clone()];
++        let joined = join_js_line_continuations(raw);
++        let content = joined.as_ref().map_or(raw, |(text, _)| text.as_str());
++        let raw_offset = |offset: usize| {
++            joined
++                .as_ref()
++                .and_then(|(_, map)| map.get(offset).copied())
++                .unwrap_or(offset)
++        };
+         if let Err(error) = rustel_mini::mini(content) {
+             // Underline from the point the parser gave up to the end of the
+             // string. An unclosed bracket fails at the very end, where a
+             // one-character mark would sit on the closing quote.
+-            let mut from = clamp_boundary(source, literal.content.start + error.offset);
++            let mut from = clamp_boundary(source, literal.content.start + raw_offset(error.offset));
+             if from >= literal.content.end || error.phase != rustel_mini::ErrorPhase::Parse {
+                 from = literal.content.start;
+             }
+@@ -365,9 +373,18 @@ fn lint_with_scan(
+         // The words as the engine builds them from the mini-notation: an
+         // atom with every `:tail` hung on it, whether written on the atom
+         // (`D:major`) or on a group it sits in (`<A1 D2>/4:minor`).
+-        let Some(words) = mini_words_of(content) else {
++        let Some(mut words) = mini_words_of(content) else {
+             continue;
+         };
++        if joined.is_some() {
++            for word in &mut words {
++                word.from = raw_offset(word.from);
++                word.to = raw_offset(word.to);
++                word.tail = word
++                    .tail
++                    .map(|(from, to)| (raw_offset(from), raw_offset(to)));
++            }
++        }
+         if matches!(callee, "s" | "sound") {
+             input_channels::check_literal(
+                 source,
+@@ -1909,7 +1926,16 @@ fn scan_blanked(source: &str, mut visit: impl FnMut(usize, usize, Lexeme)) {
+                 index += 1;
+                 while index < bytes.len() && bytes[index] != quote {
+                     if bytes[index] == b'\\' {
++                        // Escaped line endings stay inside the same JS string.
++                        // Do not mistake the escaped LF for an unterminated quote.
+                         index += 1;
++                        if index < bytes.len() {
++                            if bytes[index] == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
++                                index += 1;
++                            }
++                            index += 1;
++                        }
++                        continue;
+                     }
+                     if index < bytes.len() && quote != b'`' && bytes[index] == b'\n' {
+                         break;
+@@ -2064,6 +2090,56 @@ pub(crate) fn callee_after(source: &str, after_quote: usize) -> Option<&str> {
+     (!name.is_empty() && source.as_bytes().get(name.end) == Some(&b'(')).then(|| &source[name])
+ }
+ 
++/// JavaScript removes a backslash followed by a line terminator from a
++/// string before mini notation sees it. Map cooked byte offsets back to source.
++fn join_js_line_continuations(raw: &str) -> Option<(String, Vec<usize>)> {
++    let bytes = raw.as_bytes();
++    let mut at = 0;
++    let mut cooked = Vec::with_capacity(raw.len());
++    let mut offsets = Vec::with_capacity(raw.len() + 1);
++    let mut changed = false;
++    while at < bytes.len() {
++        if bytes[at] == b'\\' && at + 1 < bytes.len() {
++            let count = match bytes[at + 1] {
++                b'\n' => 2,
++                b'\r' => {
++                    if bytes.get(at + 2) == Some(&b'\n') {
++                        3
++                    } else {
++                        2
++                    }
++                }
++                _ if raw[at + 1..].starts_with(['\u{2028}', '\u{2029}']) => 4,
++                _ => 0,
++            };
++            if count > 0 {
++                at += count;
++                changed = true;
++                continue;
++            }
++            // Keep an escaped backslash paired so the second one cannot
++            // accidentally consume the following newline.
++            offsets.push(at);
++            cooked.push(bytes[at]);
++            at += 1;
++            offsets.push(at);
++            cooked.push(bytes[at]);
++            at += 1;
++        } else {
++            offsets.push(at);
++            cooked.push(bytes[at]);
++            at += 1;
++        }
++    }
++    offsets.push(raw.len());
++    changed.then(|| {
++        (
++            String::from_utf8(cooked).expect("line removal preserves UTF-8"),
++            offsets,
++        )
++    })
++}
++
+ /// A word the engine resolves by name: an atom with every `:tail` the
+ /// pattern hangs on it, so `<A1 D2>/4:minor` gives `A1:minor` and
+ /// `D2:minor`. Operands such as the `2` of `C:major*2` are not words. The
 diff --git a/crates/runtime/src/live.rs b/crates/runtime/src/live.rs
 index af65ba5..6b3dc5c 100644
 --- a/crates/runtime/src/live.rs
@@ -1933,7 +2125,7 @@ index 85d6c27..93b2994 100644
 +[target.'cfg(target_arch = "wasm32")'.dependencies]
 +web-sys = { version = "0.3", features = ["Window", "Storage"] }
 diff --git a/crates/studio/src/app.rs b/crates/studio/src/app.rs
-index 8bca756..4de3694 100644
+index 8bca756..9327779 100644
 --- a/crates/studio/src/app.rs
 +++ b/crates/studio/src/app.rs
 @@ -71,7 +71,7 @@ use std::path::PathBuf;
@@ -1965,7 +2157,15 @@ index 8bca756..4de3694 100644
          }
          ending
              .join()
-@@ -1681,7 +1681,11 @@ impl App {
+@@ -1212,6 +1212,7 @@ struct App {
+     features: TerminalFeatures,
+     /// The switches, as remembered and as shown.
+     ui_settings: UiSettings,
++    zen_viz_restore: [bool; DOCKS],
+     /// The clock ports the engine was last told about.
+     applied_clock: (Option<String>, Option<String>),
+     /// The preview RAM policy still owed to the engine.
+@@ -1681,7 +1682,11 @@ impl App {
          let performance_events = options.performance_events;
          // The studio's own log is one file for every set, beside the
          // preferences, never inside a set's folder.
@@ -1978,7 +2178,7 @@ index 8bca756..4de3694 100644
          #[cfg(feature = "hydra")]
          let theme_camera_confirmed = theme.camera_enabled().then(|| theme.name.clone());
          let prefs = StudioPrefs::load();
-@@ -1805,7 +1809,7 @@ impl App {
+@@ -1805,7 +1810,7 @@ impl App {
              prefs_changed_at: now,
              limiter_mode_due: None,
              manifest_changed_at: now,
@@ -1987,7 +2187,15 @@ index 8bca756..4de3694 100644
              external_watch: None,
              external_watch_checked_at: now,
              reference_anchor: None,
-@@ -3096,7 +3100,7 @@ mod tests {
+@@ -1879,6 +1884,7 @@ impl App {
+             prefs,
+             rename_untouched: false,
+             features: TerminalFeatures::default(),
++            zen_viz_restore: [false; DOCKS],
+             ui_settings: UiSettings::default(),
+             applied_clock: (None, None),
+             sample_memory_owed: None,
+@@ -3096,7 +3102,7 @@ mod tests {
                  if !had && app.prebake_inflight.is_none() && app.prebake_queue.is_empty() {
                      return;
                  }
@@ -1996,7 +2204,7 @@ index 8bca756..4de3694 100644
              }
          }
  
-@@ -3153,8 +3157,8 @@ mod tests {
+@@ -3153,8 +3159,8 @@ mod tests {
              // Wait for completed import rows, not an idle worker: on a cold cache,
              // folder walks can remain queued behind default-manifest downloads.
              pub(in crate::app) fn settle_sample_sources(&mut self) {
@@ -2007,7 +2215,7 @@ index 8bca756..4de3694 100644
                  loop {
                      if let Some(library) = self.worker.library() {
                          library.wait_until_idle(CEILING.saturating_sub(started.elapsed()));
-@@ -3166,7 +3170,7 @@ mod tests {
+@@ -3166,7 +3172,7 @@ mod tests {
                      if !walking || started.elapsed() >= CEILING {
                          return;
                      }
@@ -2016,7 +2224,7 @@ index 8bca756..4de3694 100644
                  }
              }
  
-@@ -3645,3 +3649,265 @@ mod tests {
+@@ -3645,3 +3651,271 @@ mod tests {
          }
      }
  }
@@ -2070,6 +2278,12 @@ index 8bca756..4de3694 100644
 +            .dispatch_bind_action(BindAction::Stop, false)
 +            .map(|_| ())
 +            .map_err(|e| e.to_string())
++    }
++    pub fn zen(&self) -> bool {
++        self.app.ui_settings.zen
++    }
++    pub fn toggle_zen(&mut self) {
++        self.app.toggle_zen();
 +    }
 +    pub fn source(&self) -> String {
 +        self.app.editor().source()
@@ -2484,6 +2698,104 @@ index 5948a4a..0ca5fc6 100644
  
          /// Remote parse_key's modifier set, excluding NONE (handled separately).
          fn modifiers() -> Vec<KeyModifiers> {
+diff --git a/crates/studio/src/app/menu_bar.rs b/crates/studio/src/app/menu_bar.rs
+index c8fffcc..ecb34d7 100644
+--- a/crates/studio/src/app/menu_bar.rs
++++ b/crates/studio/src/app/menu_bar.rs
+@@ -741,37 +741,33 @@ mod tests {
+             );
+         }
+ 
+-        /// The menu bar, header and footer switches are the player's lasting
+-        /// chrome: zen hides them for the session, and leaving zen restores
+-        /// whatever they said, not the factory defaults.
++        /// Leaving zen is also the recovery path for independently hidden chrome.
+         #[test]
+-        fn zen_does_not_rewrite_the_chrome_visibility_preferences() {
++        fn leaving_zen_restores_hidden_chrome_and_navigation() {
+             let directory = tempfile::tempdir().expect("temp dir");
+             let mut app = app_over(directory.path());
+             app.frame = Rect::new(0, 0, 100, 30);
+             app.ui_settings.show_menu = false;
+             app.ui_settings.show_header = false;
+             app.ui_settings.show_footer = false;
+-            assert!(app.menu_row().is_empty(), "the hidden bar still drew a row");
+-
++            app.ui_settings.line_numbers = false;
++            app.ui_settings.minimap = false;
++            app.ui_settings.show_scrollbars = false;
+             press(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
+             assert!(app.ui_settings.zen);
+-            assert!(!app.ui_settings.show_menu);
+-            assert!(!app.ui_settings.show_header);
+-            assert!(!app.ui_settings.show_footer);
+             press(&mut app, KeyCode::Char('k'), KeyModifiers::CONTROL);
+             assert!(!app.ui_settings.zen);
+-            assert!(!app.ui_settings.show_menu);
+-            assert!(!app.ui_settings.show_header);
+-            assert!(!app.ui_settings.show_footer);
+             assert!(
+-                app.menu_row().is_empty(),
+-                "leaving zen brought the bar back against the preference"
++                app.ui_settings.show_menu
++                    && app.ui_settings.show_header
++                    && app.ui_settings.show_footer
+             );
+-
+-            press(&mut app, KeyCode::F(1), KeyModifiers::NONE);
+-            assert!(app.menu.is_none(), "F1 opened a bar that is hidden");
+-            assert!(app.help.is_some(), "F1 did not go on meaning help");
++            assert!(
++                app.ui_settings.line_numbers
++                    && app.ui_settings.minimap
++                    && app.ui_settings.show_scrollbars
++            );
++            assert!(!app.menu_row().is_empty());
+         }
+ 
+         /// The chrome switches lead the Options menu, ticked while their rows are
+diff --git a/crates/studio/src/app/panes.rs b/crates/studio/src/app/panes.rs
+index 5baf0ce..21ede33 100644
+--- a/crates/studio/src/app/panes.rs
++++ b/crates/studio/src/app/panes.rs
+@@ -602,6 +602,9 @@ impl App {
+     /// or the settings sheet.
+     pub(super) fn apply_zen(&mut self) {
+         if self.ui_settings.zen {
++            for index in 0..DOCKS {
++                self.zen_viz_restore[index] = self.viz_docks[index].is_some();
++            }
+             // The visuals docks are refused outright once zen is on - see
+             // `toggle_viz_dock` - and a dock already open when zen turns
+             // on has nowhere to stand either: closing it here is what
+@@ -613,6 +616,27 @@ impl App {
+                 }
+             }
+         }
++        if !self.ui_settings.zen {
++            self.ui_settings.show_menu = true;
++            self.ui_settings.show_header = true;
++            self.ui_settings.show_footer = true;
++            self.ui_settings.line_numbers = true;
++            self.ui_settings.minimap = true;
++            self.ui_settings.show_scrollbars = true;
++            self.ui_settings.apply();
++            self.prefs.set_ui_settings(&self.ui_settings);
++            self.save_prefs_soon();
++            self.refresh_editor_shortcut_hints();
++            for index in 0..DOCKS {
++                if self.zen_viz_restore[index] && self.viz_docks[index].is_none() {
++                    self.toggle_viz_dock(index);
++                }
++            }
++            self.zen_viz_restore.fill(false);
++            if !self.settings_hold_the_keys() {
++                self.focus = Focus::Editor;
++            }
++        }
+         self.invalidate_maps();
+         self.status = if self.ui_settings.zen {
+             format!(
 diff --git a/crates/studio/src/app/power_advisory.rs b/crates/studio/src/app/power_advisory.rs
 index 4467027..e843fcc 100644
 --- a/crates/studio/src/app/power_advisory.rs
@@ -3712,7 +4024,7 @@ index 7272328..4dfed3a 100644
          );
  
 diff --git a/crates/studio/src/settings.rs b/crates/studio/src/settings.rs
-index 5f4f5eb..f6cf5d9 100644
+index 5f4f5eb..fb02c35 100644
 --- a/crates/studio/src/settings.rs
 +++ b/crates/studio/src/settings.rs
 @@ -1110,13 +1110,13 @@ impl UnusedSampleIdle {
@@ -3775,6 +4087,15 @@ index 5f4f5eb..f6cf5d9 100644
          }
      }
  
+@@ -1911,7 +1911,7 @@ pub struct UiSettings {
+     /// preferences file: opening the studio into a stripped-down window
+     /// nobody asked for is not a kindness. Independent of
+     /// [`Self::show_menu`], [`Self::show_header`] and [`Self::show_footer`]:
+-    /// those are the player's lasting chrome, and leaving zen restores them.
++    /// leaving zen re-enables these rows and the editor navigation aids.
+     pub zen: bool,
+     /// The File / Edit menu bar along the top. On by default; remembered.
+     pub show_menu: bool,
 @@ -7540,7 +7540,7 @@ mod tests {
      /// It is the one control that hands those cycles back.
      #[test]
