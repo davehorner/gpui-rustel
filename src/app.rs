@@ -2,6 +2,7 @@ use crate::bridge::{Bridge, command};
 use crate::model::{Frame, MODES, Settings};
 use crate::{charts, model};
 use gpui_kit::*;
+use gpui_kit::{Animation, AnimationExt};
 use gpui_kit::{
     base::Disableable,
     component::{
@@ -122,7 +123,7 @@ impl MusicApp {
         });
         cx.notify();
     }
-    fn camera_controls(&self, opacity: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    fn camera_controls(&self, opacity: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         div()
             .id("stage-camera-controls")
             .absolute()
@@ -469,6 +470,19 @@ impl Render for MusicApp {
             .items_center()
             .gap_2()
             .p_3()
+            .child(
+                Button::new("open-studio")
+                    .label("Studio")
+                    .on_click(cx.listener(|_, _, _, cx| {
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().set_search("?studio");
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        cx.open_url("https://davehorner.github.io/gpui-rustel/?studio");
+                        let _ = cx;
+                    })),
+            )
             .child(self.menu(
                 "session",
                 if v.session.is_empty() {
@@ -644,7 +658,11 @@ impl Render for MusicApp {
             .relative()
             .child(content)
             .when(v.mode == 0 && self.camera_controls_open, |scene| {
-                scene.child(self.camera_controls(v.fox_opacity, cx))
+                scene.child(self.camera_controls(v.fox_opacity, cx).with_animation(
+                    "camera-reveal",
+                    Animation::new(Duration::from_millis(180)).with_max_fps(30.),
+                    |panel, progress| panel.opacity(progress),
+                ))
             })
             .on_mouse_down(
                 MouseButton::Left,
@@ -897,20 +915,28 @@ impl Render for MusicApp {
                     .child("GPUI RUSTEL · LIVE PATTERN FIELD")
                     .child(format!("{status} · {feedback}")),
             )
-            .child(toolbar.when(narrow, |toolbar| {
-                toolbar.child(
-                    Button::new("mobile-source")
-                        .label(if self.source_open {
-                            "Hide code"
-                        } else {
-                            "Show code"
-                        })
-                        .on_click(cx.listener(|app, _, _, cx| {
-                            app.source_open = !app.source_open;
-                            cx.notify();
-                        })),
-                )
-            }))
+            .child(
+                toolbar
+                    .when(narrow, |toolbar| {
+                        toolbar.child(
+                            Button::new("mobile-source")
+                                .label(if self.source_open {
+                                    "Hide code"
+                                } else {
+                                    "Show code"
+                                })
+                                .on_click(cx.listener(|app, _, _, cx| {
+                                    app.source_open = !app.source_open;
+                                    cx.notify();
+                                })),
+                        )
+                    })
+                    .with_animation(
+                        "toolbar-reveal",
+                        Animation::new(Duration::from_millis(240)).with_max_fps(30.),
+                        |toolbar, progress| toolbar.opacity(progress),
+                    ),
+            )
             .child(
                 div()
                     .flex()
