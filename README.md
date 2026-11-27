@@ -50,7 +50,7 @@ Open `/audio-validation.html` for the shipped host/worker/worklet browser integr
 
 ## Source and licenses
 
-GPUI integration is MIT OR Apache-2.0. Rustel engine and `wasm-audio` are AGPL-3.0-or-later, with source pin, patches, build scripts and license supplied in the downloadable web bundle. QuickJS and WASM libc notices are included. Vendored protocol and broker attribution is recorded in [vendor/README.md](vendor/README.md).
+GPUI integration is MIT OR Apache-2.0. Rustel engine and `wasm-audio` are AGPL-3.0-or-later, with source pin, patches, build scripts and license supplied in the downloadable web bundle. QuickJS and WASM libc notices are included. Music protocol and broker dependency attribution is recorded in [vendor/README.md](vendor/README.md).
 
 The embedded Fox asset and its animation/conversion credits are listed in [assets/README.md](assets/README.md).
 

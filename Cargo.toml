@@ -14,7 +14,7 @@ gpui-kit = { path = "vendor/gpui-nightshade/upstream/gpui-component/crates/kit" 
 web-time = "1"
 
 music-link = { path = "vendor/music-link" }
-hearsay = { path = "vendor/hearsay" }
+hearsay = { git = "https://github.com/matthewjberger/hearsay", rev = "033cf8ba3ef87614f45ac397d5cb940898433a5d" }
 serde_json = "1"
 rustel-ui-adapter = { path = "upstream-adapter" }
 
@@ -50,7 +50,7 @@ console_log = "1"
 log = "0.4"
 
 [workspace]
-exclude = ["upstream-adapter", "wasm-audio", "vendor/gpui-nightshade", "vendor/hearsay", "vendor/music-link"]
+exclude = ["upstream-adapter", "wasm-audio", "vendor/gpui-nightshade", "vendor/music-link"]
 resolver = "2"
 
 [patch.crates-io]

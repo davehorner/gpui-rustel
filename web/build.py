@@ -41,6 +41,7 @@ def main():
     (args.out/".nojekyll").touch()
     licenses=args.out/"licenses";licenses.mkdir(exist_ok=True)
     shutil.copyfile(APP/"assets/README.md",licenses/"Fox-attribution.md")
+    for name in ["LICENSE-MIT","LICENSE-APACHE"]:shutil.copyfile(APP/"licenses/hearsay"/name,licenses/("Hearsay-"+name))
     shutil.copyfile(audio/"LICENSE",licenses/"Rustel-AGPL-3.0.txt")
     (licenses/"SOURCE.txt").write_text("Rustel engine: https://github.com/tzfm/rustel/tree/79fd1fb3fd64c0a637f475ad24de675fd5b2ac59\nBrowser host source: https://github.com/davehorner/gpui-rustel (wasm-audio and web folders).\n",encoding="utf-8")
     source=args.out/"source/rustel-browser-audio";(source/"src").mkdir(parents=True,exist_ok=True)

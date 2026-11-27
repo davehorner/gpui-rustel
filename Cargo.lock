@@ -3803,6 +3803,7 @@ dependencies = [
 [[package]]
 name = "hearsay"
 version = "0.3.0"
+source = "git+https://github.com/matthewjberger/hearsay?rev=033cf8ba3ef87614f45ac397d5cb940898433a5d#033cf8ba3ef87614f45ac397d5cb940898433a5d"
 dependencies = [
  "arc-swap",
  "bytes",
