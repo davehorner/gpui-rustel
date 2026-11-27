@@ -27,16 +27,6 @@ jobs:
         run: python scripts/prepare.py
       - name: Initialize pinned browser audio dependencies
         run: python wasm-audio/prepare_engine.py
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: v1-pages-full-target
-          # Cargo downloads stay in rust-cache; full build outputs are cached below.
-          cache-targets: false
-          cache-all-crates: true
-          workspaces: |
-            . -> target
-            wasm-audio -> target
-      # Save before rust-cache's post-step prunes local/path crate artifacts.
       - name: Cache complete Rust build outputs
         uses: actions/cache@v4
         with:
