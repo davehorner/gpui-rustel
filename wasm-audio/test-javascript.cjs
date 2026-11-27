@@ -18,12 +18,13 @@ const pcm=Float32Array.from({length:48000},(_,i)=>Math.sin(i*2*Math.PI*220/48000
 engine.register_bank('fixture',JSON.stringify([{id,variant:0,variant_count:1,root:48,duration:1}]));assert(!engine.needs_sample('{"s":"fixture","note":48}'));
 const output=engine.render(4096);assert(output.some(v=>Math.abs(v)>0.001));assert.equal(JSON.parse(engine.missing_json()).length,0);engine.free();
 // Studio visual taps remain receiver-isolated, and orbit faders reach real DSP.
-const visuals=new JavaScriptEngine('$: note("a3").s("sine").gain(.1)._scope()\n$: note("a5").s("sine").gain(.2)._scope()',48000,'{}');
+const visuals=new JavaScriptEngine('$: note("a3").s("sine").orbit(0).gain(.1)._scope()\n$: note("a5").s("sine").orbit(1).gain(.2)._scope()',48000,'{}');
 visuals.set_visual_capture(true);visuals.render(4096);
 const taps=JSON.parse(visuals.visual_audio_json());assert.equal(taps.length,2);
 for(const tap of taps){assert.equal(tap.samples.length,4096);assert(tap.samples.some(v=>Math.abs(v)>.001));}
 assert.notDeepEqual(taps[0].samples,taps[1].samples);
 const masks=new Set(JSON.parse(visuals.events_json()).map(e=>e.ui_visuals));assert(masks.has('1')&&masks.has('2'));
-visuals.set_orbit_gain(0,0);assert(visuals.render(4096).every(v=>Math.abs(v)<.00001));visuals.free();
+visuals.set_orbit_gain(0,0);assert(visuals.render(4096).some(v=>Math.abs(v)>.001),"muting one orbit must leave its sibling audible");
+visuals.set_orbit_gain(1,0);assert(visuals.render(4096).every(v=>Math.abs(v)<.00001));visuals.free();
 assert.throws(()=>new JavaScriptEngine('while(true){}',48000,'{}'));
 console.log(JSON.stringify({demos:reports,installedPcm:true,scoreEffects:true,runawayJavascriptRefused:true},null,2));
