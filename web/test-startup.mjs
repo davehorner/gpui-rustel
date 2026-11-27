@@ -15,7 +15,8 @@ const failed=new Event('nightshade-stage');failed.detail={stage:'error',message:
 assert.match(boot.children[2].children[1].textContent,/Android Chrome/);
 // A killed startup stays at a lightweight diagnostic screen on reload.
 data.set('retry-startup',JSON.stringify({pending:true,phase:'Compiling WASM'}));globalThis.window=new EventTarget();
-const retryBoot=new Element(),retry=startup(retryBoot,'retry','one');let started=false;const pending=retry.check().then(()=>started=true);await new Promise(resolve=>setImmediate(resolve));assert.equal(started,false);
+let adapterRequests=0;navigator.gpu.requestAdapter=async()=>{adapterRequests++;return adapter;};
+const retryBoot=new Element(),retry=startup(retryBoot,'retry','one');let started=false;const pending=retry.check().then(()=>started=true);await new Promise(resolve=>setImmediate(resolve));assert.equal(started,false);assert.equal(adapterRequests,0,'recovery must not touch the GPU before Start app');
 assert.match(retryBoot.children[0].textContent,/Previous startup stopped at: Compiling WASM/);
-retryBoot.children[1].children[0].onclick();await pending;assert.equal(started,true);
+retryBoot.children[1].children[0].onclick();await pending;assert.equal(started,true);assert.equal(adapterRequests,1);
 console.log('PASS: adapter checks, first-frame startup gating, visible GPU failures, crash-recovery diagnostics');

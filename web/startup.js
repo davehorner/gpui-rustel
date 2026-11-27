@@ -37,6 +37,11 @@ export function startup(boot,name,build) {
     phase,fail,
     appReady(){appReady=true;finish();},
     async check(){
+      if(params.has('diagnostics')||previous?.pending){
+        waitingForUser=true;
+        phase(previous?.pending?`Previous startup stopped at: ${previous.phase}`:'Diagnostics only. No GPU or WASM has been started. Copy diagnostics before starting.');details.open=true;start.hidden=false;
+        await new Promise(resolve=>{start.onclick=()=>{waitingForUser=false;start.hidden=true;resolve();};});
+      }
       if(!navigator.gpu)throw Error('WebGPU is not exposed by this Chrome/device. The current GPUI/Nightshade apps require WebGPU.');
       phase('Requesting a WebGPU adapter');
       const adapter=await navigator.gpu.requestAdapter();
@@ -53,11 +58,7 @@ export function startup(boot,name,build) {
           const error=await device.popErrorScope();if(error)throw Error(error.message);texture.destroy();phase('Tiny WebGPU render passed');
         }catch(error){fail(error);}finally{device?.destroy();probe.disabled=false;}
       };
-      if(params.has('diagnostics')||previous?.pending){
-        waitingForUser=true;
-        phase(previous?.pending?`Previous startup stopped at: ${previous.phase}`:'GPU capabilities checked. Copy diagnostics or test the GPU before starting.');details.open=true;start.hidden=false;
-        await new Promise(resolve=>{start.onclick=()=>{waitingForUser=false;start.hidden=true;resolve();};});
-      }
+
     }
   };
 }

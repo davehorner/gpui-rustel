@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Browser startup report</title>
+<style>body{background:#0b1220;color:#dce9f7;font:16px system-ui;margin:24px}button{font:inherit;padding:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}a{color:#9cd5ff}</style>
+<h1>Browser startup report</h1><p>This page does not start WebGPU, download WASM, or play audio.</p>
+<button id="copy">Copy report</button><pre id="report"></pre>
+<script>
+const report={userAgent:navigator.userAgent,secureContext:isSecureContext,webGPUExposed:!!navigator.gpu,deviceMemory:navigator.deviceMemory,devicePixelRatio,viewport:{width:innerWidth,height:innerHeight},previous:{}};
+for(const name of ['Nightshade','Rustel']){try{report.previous[name]=JSON.parse(localStorage.getItem(name+'-startup'));}catch(error){report.previous[name]=String(error);}}
+const text=JSON.stringify(report,null,2);document.getElementById('report').textContent=text;
+document.getElementById('copy').onclick=async()=>{try{await navigator.clipboard.writeText(text);document.getElementById('copy').textContent='Copied';}catch{document.getElementById('copy').textContent='Select the report below to copy';}};
+</script></html>
