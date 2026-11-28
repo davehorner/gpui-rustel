@@ -1,0 +1,36 @@
+// SALSA LUZ DE TARDE — Dirt-sample practice version
+// 148 BPM, G minor. Relaxed salsa romantica with spacious horn phrases.
+// Dirt-Samples: spoken English numbers, woodblock, hand drums and closed hi-hat.
+// Dance On1: say 1 2 3, hold 4; say 5 6 7, hold 8.
+samples({
+  practice_count: ['numbers/0.wav','numbers/1.wav','numbers/2.wav','numbers/3.wav','numbers/4.wav','numbers/5.wav','numbers/6.wav','numbers/7.wav','numbers/8.wav'],
+  dirt_block: ['east/000_nipon_wood_block.wav'],
+  dirt_hand: ['east/001_ohkawa_mute.wav','east/002_ohkawa_open.wav'],
+  dirt_hat: ['hh/000_hh3closedhh.wav']
+}, 'https://strudel.b-cdn.net/Dirt-Samples/')
+setcpm(148/4)
+const harmony = chord("<Gm9 Eb^7 Cm9 D7>").dict("ireal")
+const tumbao = note("<[~ g1 ~ d2 ~ ~ f2 g2] [~ eb2 ~ bb2 ~ ~ d3 eb3] [~ c2 ~ g2 ~ ~ bb2 c3] [~ d2 ~ a2 ~ ~ c3 fs2]>").s("gm_acoustic_bass").gain(.45).attack(.006).release(.14).lpf(1050)
+const montuno = note("<[g3 d4 bb4 d4 ~ f4 bb4 ~] [eb4 bb4 g5 bb4 ~ d5 g5 ~] [c4 g4 eb5 g4 ~ bb4 eb5 ~] [d4 a4 fs5 a4 ~ c5 fs5 ~]>").s("gm_acoustic_grand_piano").gain(.25).attack(.003).decay(.18).sustain(.09).release(.085).pan(-.18)
+const pianoAlto = note("<[~ ~ d5 ~ f5 d5 ~ bb4] [~ ~ bb5 ~ d6 bb5 ~ g5] [~ ~ g5 ~ bb5 g5 ~ eb5] [~ ~ a5 ~ c6 a5 ~ fs5]>").s("gm_acoustic_grand_piano").gain(.10).decay(.17).sustain(.06).release(.08).pan(.18)
+const melodia = note("<[d5 ~ g5 a5 bb5 ~ a5 g5] [g5 ~ f5 eb5 d5 ~ bb4 ~] [eb5 ~ g5 bb5 g5 ~ f5 eb5] [fs5 ~ e5 d5 c5 ~ a4 fs4]>").s("gm_trumpet").gain(.24).attack(.025).release(.18).room(.23).pan(.1)
+const respuesta = note("<[~ ~ bb4 ~ d5 ~ c5 bb4] [~ ~ g4 ~ bb4 ~ d5 eb5] [~ ~ eb4 ~ g4 ~ bb4 c5] [~ ~ fs4 ~ a4 ~ c5 d5]>").s("gm_trombone").gain(.16).attack(.03).release(.2).room(.22).pan(-.12)
+const metales = harmony.voicing().s("gm_brass_section").struct("~ ~ x ~ ~ ~ x ~").gain(.15).attack(.025).decay(.2).sustain(.22).release(.16)
+const terciopelo = harmony.voicing().s("gm_electric_piano_1").struct("x ~ ~ ~ x ~ ~ ~").gain(.11).attack(.015).release(.35).room(.25)
+const clave = s("<[dirt_block ~ ~ dirt_block ~ ~ dirt_block ~] [~ ~ dirt_block ~ dirt_block ~ ~ ~]>").gain(.145).pan(.2)
+const tambores = stack(s("dirt_hand:0 ~ dirt_hand:1 ~ ~ dirt_hand:0 [dirt_hand:1 dirt_hand:0] ~").gain(".10 .04 .135 .055 .05 .12 .085 .045").speed(.7).pan(-.2),s("~ ~ dirt_hand:1 ~ ~ dirt_hand:1 ~ ~").gain(.05).speed(.65).pan(.12))
+const cascara = s("dirt_hat*8").gain(".065 .025 .09 .035 .065 .03 .10 .04").hpf(4600).pan(.25)
+const campana = note("c6 ~ ~ c6 ~ c6 ~ ~").s("gm_woodblock").gain(.075).decay(.12).release(.04).pan(.24)
+const bombo = s("bd ~ ~ ~ ~ ~ bd ~").gain(.095)
+const timbal = s("~ ~ ~ ~ rim ~ [rim rim] cp").gain(.065).speed(1.2).pan(-.25)
+const entrada = stack(montuno, terciopelo, clave, cascara)
+const base = stack(tumbao, montuno, clave, tambores, cascara, bombo)
+const verso = stack(base, melodia, terciopelo)
+const coro = stack(base, pianoAlto, melodia, respuesta, campana)
+const puente = stack(tumbao, terciopelo, respuesta, clave, tambores)
+const final = stack(base, melodia, respuesta, metales, campana, timbal)
+const musica = arrange([4, entrada], [8, verso], [8, coro], [4, puente], [8, final], [8, verso])
+
+// Eight quarter-note positions across two bars; pause on 4 and 8.
+const cuenta = s("practice_count:1 practice_count:2 practice_count:3 ~ practice_count:5 practice_count:6 practice_count:7 ~").slow(2).gain(.85).cut(77)
+$: stack(musica.gain(.65), cuenta)

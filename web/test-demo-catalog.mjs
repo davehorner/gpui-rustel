@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {demoCatalog,demoSource,demoWorkspace} from './demo-catalog.js';
+const bytes=new TextEncoder().encode("note('c4').s('sine')"),entry={name:'Demo.strudel',url:'./scores/Demo.strudel',sha256:createHash('sha256').update(bytes).digest('hex')};
+globalThis.fetch=async url=>url==='./javascript-demos.json'?{ok:true,json:async()=>[entry]}:{ok:true,arrayBuffer:async()=>bytes.buffer};
+assert.deepEqual(await demoCatalog(),[entry]);assert.equal(await demoSource(entry),new TextDecoder().decode(bytes));
+await assert.rejects(demoSource({...entry,sha256:'bad'}),/Demo source changed/);
+const before={current:0,documents:[{name:'Demo.strudel',source:'unsaved work'}]};
+const after=JSON.parse(demoWorkspace(JSON.stringify(before),entry,'new demo'));
+assert.deepEqual(after.documents[0],before.documents[0]);assert.equal(after.documents[1].name,'Demo (2).strudel');assert.equal(after.documents[after.current].source,'new demo');
+assert.throws(()=>demoWorkspace(JSON.stringify({documents:Array.from({length:32},()=>({name:'scene',source:''}))}),entry,''),/32 scenes/);
+console.log('PASS: verified demo source, preserved scenes, duplicate names and scene limit');

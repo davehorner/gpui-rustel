@@ -14,7 +14,7 @@ def main():
     prepare()
     subprocess.run([sys.executable,str(HERE/'check.py'),'--build'],check=True,cwd=ROOT)
     binary=HERE/'target/wasm32-unknown-unknown/release/rustel_browser_studio.wasm'
-    version=hashlib.sha256(binary.read_bytes()+(ROOT/'web/studio.js').read_bytes()).hexdigest()[:16]
+    version=hashlib.sha256(binary.read_bytes()+(ROOT/'web/studio.js').read_bytes()+(ROOT/'web/demo-catalog.js').read_bytes()).hexdigest()[:16]
     lock=tomllib.loads((HERE/'Cargo.lock').read_text(encoding='utf-8'))
     bindgen=next(p['version'] for p in lock['package'] if p['name']=='wasm-bindgen')
     local=ROOT/'target/wasm-tools/bin'/('wasm-bindgen.exe' if os.name=='nt' else 'wasm-bindgen')

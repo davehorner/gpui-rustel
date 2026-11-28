@@ -8,10 +8,11 @@ const reports=[];
 for(const name of fs.readdirSync(path.join(__dirname,'../demos')).filter(n=>n.endsWith('.strudel'))){
  const source=fs.readFileSync(path.join(__dirname,'../demos',name),'utf8'),engine=new JavaScriptEngine(source,48000,'{}');
  const metadata=JSON.parse(engine.metadata_json()),probe=JSON.parse(engine.probe_json(0,4));assert.equal(metadata.source,source);assert(probe.length>0);assert(metadata.lanes.length>0);
+ const sampleNeeds=probe.map(value=>engine.needs_sample(JSON.stringify(value)));
  let peak=0,events=0;const missing=new Set();
  for(let i=0;i<24;i++){for(const v of engine.render(4096)){assert(Number.isFinite(v));peak=Math.max(peak,Math.abs(v));}events+=JSON.parse(engine.events_json()).length;for(const value of JSON.parse(engine.missing_json()))missing.add(value.s||value.sound);}
- if(!['Bachata.strudel','Sample bank.strudel','Custom samples.strudel'].includes(name)){assert(peak>0.001);assert(events>0);assert.equal(missing.size,0);}
- else{assert.equal(peak,0);assert(missing.size>0);}// Missing samples stay missing, never replaced by oscillators.
+ if(!sampleNeeds.some(Boolean)){assert(peak>0.001,name);assert(events>0,name);assert.equal(missing.size,0,name);}
+ else{assert(missing.size>0,name);if(sampleNeeds.every(Boolean))assert.equal(peak,0,name);}// Missing samples stay missing, never replaced by oscillators; mixed arrangements may still emit synth voices.
  reports.push({name,lanes:metadata.lanes.length,queried:probe.length,peak,events,missing:[...missing]});engine.free();
 }
 // A sample-only score becomes audible only after installing actual host PCM.

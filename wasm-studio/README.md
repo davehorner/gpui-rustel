@@ -25,3 +25,5 @@ python web/build.py --out target/gpui-rustel-web
 ```
 
 The whole-site builder publishes versioned Studio assets and the corresponding adapter source alongside the existing engine source and AGPL license. GitHub Pages needs no server-side changes.
+
+The toolbar’s **Demo score** picker uses the same published catalogue as the GPUI/WASM viewer. **Load demo** verifies the score hash and opens it as a new scene, preserving existing scenes and edits. Press **Play** to evaluate it. All scores in the repository’s `demos/` folder are included automatically.

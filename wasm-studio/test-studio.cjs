@@ -38,3 +38,9 @@ const invalid=new Studio('note("c4 '+String.fromCharCode(92)+'\r\n z9").s("sine"
 const diagnostic=JSON.parse(invalid.frame(150,15)).cells.slice(-300,-150).map(c=>c[0]).join('');assert.match(diagnostic,/2:2.*not a note: "z9"/);invalid.free();
 studio.toggle_zen();assert.equal(screen().zen,true);studio.toggle_zen();assert.equal(screen().zen,false);assert.match(text(),/File.*Edit/);
 studio.free();console.log('PASS: real Studio editor, undo, menus, evaluate/stop, visuals and workspace restore');
+
+for(const name of fs.readdirSync(path.resolve(__dirname,'../demos')).filter(name=>name.endsWith('.strudel'))){
+ const demo=new Studio(fs.readFileSync(path.resolve(__dirname,'../demos',name),'utf8'));demo.play();
+ assert(JSON.parse(demo.commands()).some(command=>command.type==='evaluate'),`Studio rejected demo: ${name}`);demo.free();
+}
+console.log('PASS: all bundled demos pass Studio preflight');

@@ -1,0 +1,252 @@
+// Practice overlay: spoken 1–8 across two bars, including the taps on 4 and 8.
+// Expanded Dirt percussion; the original melodic arrangement stays intact.
+samples({
+  bachata_count: ['numbers/1.wav','numbers/2.wav','numbers/3.wav','numbers/4.wav','numbers/5.wav','numbers/6.wav','numbers/7.wav','numbers/8.wav'],
+  dirt_hand: ['east/001_ohkawa_mute.wav','east/002_ohkawa_open.wav'],
+  dirt_low: ['tabla/000_bass_flick1.wav'],
+  dirt_tick: ['east/000_nipon_wood_block.wav'],
+  dirt_hat: ['hh/000_hh3closedhh.wav','hh/007_hh3openhh.wav'],
+  dirt_kick: ['bd/BT0A0A7.wav'],
+  dirt_perc: ['perc/000_perc0.wav','perc/002_perc2.wav']
+}, 'https://strudel.b-cdn.net/Dirt-Samples/')
+
+// BACHATA DE MEDIANOCHE
+// Sensual Bachata — Full Arrangement
+// 124 BPM | A minor | ~3:06
+
+setcpm(124/4)
+const bpm = 124
+
+// 1 cycle = 1 bar of 4/4
+// 96 bars = approximately 3:06
+
+// ---------------------------------
+// HARMONIC PROGRESSION
+// Am9 - Fmaj7 - Cmaj7 - G6
+// ---------------------------------
+
+const harmony = chord("<Am9 Fmaj7 Cmaj7 G6>")
+  .dict("ireal")
+
+// ---------------------------------
+// BASS — warm, dancing, intimate
+// ---------------------------------
+
+const bass = note(
+  "<[a2 ~ e3 a2 e3 ~ g2 e3] \
+    [f2 ~ c3 f2 c3 ~ e2 c3] \
+    [c3 ~ g3 c3 g2 ~ b2 g2] \
+    [g2 ~ d3 g2 d3 ~ b2 d3]>"
+)
+  .s("gm_acoustic_bass")
+  .gain(0.72)
+  .lpf(950)
+  .release(0.2)
+
+// ---------------------------------
+// GUITAR — syncopated bachata
+// ---------------------------------
+
+const rhythm = harmony
+  .voicing()
+  .s("gm_acoustic_guitar_nylon")
+  .struct("~ x ~ x ~ x xx x")
+  .decay(0.16)
+  .sustain(0.12)
+  .gain(0.43)
+  .pan(-0.3)
+  .room(0.16)
+
+// Second guitar, lighter offbeats
+const rhythm2 = harmony
+  .voicing()
+  .s("gm_acoustic_guitar_steel")
+  .struct("~ ~ x ~ ~ ~ x ~")
+  .gain(0.19)
+  .pan(0.35)
+  .room(0.25)
+
+// ---------------------------------
+// REQUINTO — sensual lead melody
+// ---------------------------------
+
+const leadA = note(
+  "<[e5 g5 a5 ~ c6 b5 a5 g5] \
+    [a5 ~ g5 f5 e5 ~ c5 e5] \
+    [g5 e5 d5 c5 e5 ~ g5 e5] \
+    [d5 ~ b4 d5 g5 f5 e5 d5]>"
+)
+  .s("gm_acoustic_guitar_steel")
+  .gain(0.56)
+  .room(0.38)
+  .delay(0.24)
+  .delaytime(0.375)
+  .delayfeedback(0.22)
+  .pan(0.2)
+
+const leadB = note(
+  "<[a5 c6 e6 ~ d6 c6 b5 a5] \
+    [c6 ~ a5 g5 f5 a5 c6 a5] \
+    [g5 c6 e6 d6 c6 ~ g5 e5] \
+    [b5 a5 g5 d6 b5 g5 e5 d5]>"
+)
+  .s("gm_acoustic_guitar_steel")
+  .gain(0.62)
+  .room(0.4)
+  .delay(0.3)
+  .delaytime(0.375)
+  .delayfeedback(0.27)
+
+// ---------------------------------
+// PERCUSSION
+// ---------------------------------
+
+const guira = s("dirt_hat:0*8")
+  .gain("0.23 0.1 0.28 0.12 0.25 0.1 0.38 0.14")
+  .hpf(6500)
+  .pan(-0.22)
+
+const bongos = stack(
+  s("~ dirt_hand:0 ~ dirt_hand:1 ~ dirt_hand:0 ~ dirt_hand:1")
+    .gain(0.28),
+  s("~ ~ ~ ~ ~ ~ dirt_perc:1 ~")
+    .gain(0.35),
+  s("dirt_low ~ ~ dirt_low ~ dirt_low ~ ~")
+    .gain(0.28)
+)
+
+const pulse = stack(
+  s("dirt_kick ~ ~ ~ dirt_kick ~ ~ ~").gain(0.42),
+  s("~ ~ dirt_perc:0 ~ ~ ~ dirt_perc:1 ~").gain(0.25)
+)
+
+// ---------------------------------
+// ATMOSPHERE — warm and seductive
+// ---------------------------------
+
+const keys = harmony
+  .voicing()
+  .s("gm_electric_piano_1")
+  .struct("x ~ ~ ~ x ~ ~ ~")
+  .gain(0.28)
+  .room(0.5)
+  .delay(0.15)
+
+const pad = harmony
+  .voicing()
+  .s("gm_string_ensemble_1")
+  .attack(0.5)
+  .release(1.4)
+  .gain(0.13)
+  .room(0.65)
+
+// ---------------------------------
+// GUITAR SOLO
+// ---------------------------------
+
+const solo = note(
+  "<[e5 g5 a5 c6 e6 d6 c6 a5] \
+    [c6 a5 g5 f5 a5 c6 e6 c6] \
+    [g5 c6 e6 g6 e6 d6 c6 g5] \
+    [b5 d6 g6 d6 b5 a5 g5 d5] \
+    [a5 c6 e6 a6 g6 e6 c6 a5] \
+    [f5 a5 c6 f6 e6 c6 a5 g5] \
+    [e5 g5 c6 e6 g6 e6 d6 c6] \
+    [b5 g5 d6 b5 a5 g5 e5 d5]>"
+)
+  .s("gm_acoustic_guitar_steel")
+  .gain(0.7)
+  .room(0.48)
+  .delay(0.33)
+  .delaytime(0.375)
+  .delayfeedback(0.3)
+
+// ---------------------------------
+// ARRANGEMENT — 96 BARS
+// ---------------------------------
+
+const arrangement = arrange(
+  [8, stack(
+    rhythm,
+    keys,
+    leadA.gain(0.35),
+    pad
+  )],
+
+  [16, stack(
+    bass,
+    rhythm,
+    rhythm2,
+    guira,
+    bongos,
+    keys,
+    leadA.gain(0.35)
+  )],
+
+  [16, stack(
+    bass,
+    rhythm,
+    rhythm2,
+    guira,
+    bongos,
+    pulse,
+    keys,
+    pad,
+    leadB
+  )],
+
+  [8, stack(
+    bass,
+    rhythm,
+    guira,
+    bongos,
+    keys,
+    leadA.gain(0.3)
+  )],
+
+  [16, stack(
+    bass,
+    rhythm,
+    rhythm2,
+    guira,
+    bongos,
+    pulse,
+    keys,
+    pad,
+    solo
+  )],
+
+  [8, stack(
+    rhythm.gain(0.25),
+    keys,
+    pad,
+    leadA.gain(0.24)
+  )],
+
+  [16, stack(
+    bass,
+    rhythm,
+    rhythm2,
+    guira,
+    bongos,
+    pulse,
+    keys,
+    pad,
+    leadB,
+    leadA.gain(0.2)
+  )],
+
+  [8, stack(
+    bass.gain(0.4),
+    rhythm,
+    keys,
+    pad,
+    leadA.gain(0.4)
+  )]
+)
+
+const practiceCount = s("bachata_count:0 bachata_count:1 bachata_count:2 bachata_count:3 bachata_count:4 bachata_count:5 bachata_count:6 bachata_count:7").slow(2).gain(.9).cut(77)
+const dirtAccents = s("~ ~ dirt_tick ~ ~ ~ dirt_tick ~").gain(.075).pan(.24)
+const dirtAir = s("~ ~ ~ dirt_hat:1 ~ ~ ~ ~").gain(.045).hpf(5000).pan(-.18)
+const dirtFill = s("<[~ ~ ~ ~] [~ ~ ~ ~] [~ ~ ~ ~] [~ ~ dirt_perc:1 [dirt_perc:0 dirt_hand:1]]>").gain(.09).pan(.16)
+$: stack(arrangement, dirtAccents, dirtAir, dirtFill, practiceCount)

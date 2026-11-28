@@ -1,5 +1,6 @@
 // Real upstream Ratatui Studio, rendered locally from its WASM cell buffer.
 export async function startStudio(audioVersion,studioVersion){
+  const {demoCatalog,demoSource,demoWorkspace}=await import(`./demo-catalog.js?v=${studioVersion}`);
   document.title='Rustel Studio';
   const boot=document.querySelector('#boot');
   const fail=error=>{boot.hidden=false;boot.textContent=`Rustel Studio: ${error?.stack||error}`;};
@@ -8,9 +9,9 @@ export async function startStudio(audioVersion,studioVersion){
     const wasm=await import(`./studio/${studioVersion}/rustel_browser_studio.js`);await wasm.default();
     const saved=localStorage.getItem('rustel-studio-file:browser/live.strudel')||localStorage.getItem('rustel-studio-draft-v1');
     const source=saved||await fetch('./scores/Studio.strudel').then(r=>r.text());
-    const studio=new wasm.Studio(source,localStorage.getItem('rustel-studio-workspace-v1')||undefined);window.rustelStudio=studio;
-    const style=document.createElement('style');style.textContent=`#studio{position:fixed;inset:0;display:flex;flex-direction:column;background:#101216}#studio header{display:flex;gap:8px;align-items:center;padding:7px;background:#18202d;font:13px system-ui;flex-wrap:wrap}#studio button{color:#e8efff;background:#29384c;border:1px solid #52647d;border-radius:5px;padding:7px 12px}#studio #play{background:#1465db;border-color:#4389ef}#studio canvas{flex:1;min-height:0;width:100%;touch-action:none}#studio-status{margin-left:auto;color:#b3c5dd}#studio-input{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:.01;border:0;padding:0;font-size:16px}`;document.head.append(style);
-    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><button id="zen" aria-pressed="false">Zen</button><button id="reset">Reset Studio</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
+    let studio=new wasm.Studio(source,localStorage.getItem('rustel-studio-workspace-v1')||undefined);window.rustelStudio=studio;
+    const style=document.createElement('style');style.textContent=`#studio{position:fixed;inset:0;display:flex;flex-direction:column;background:#101216}#studio header{display:flex;gap:8px;align-items:center;padding:7px;background:#18202d;font:13px system-ui;flex-wrap:wrap}#studio select{max-width:220px;color:#e8efff;background:#29384c;border:1px solid #52647d;border-radius:5px;padding:7px}#studio button{color:#e8efff;background:#29384c;border:1px solid #52647d;border-radius:5px;padding:7px 12px}#studio #play{background:#1465db;border-color:#4389ef}#studio canvas{flex:1;min-height:0;width:100%;touch-action:none}#studio-status{margin-left:auto;color:#b3c5dd}#studio-input{position:absolute;left:0;bottom:0;width:1px;height:1px;opacity:.01;border:0;padding:0;font-size:16px}`;document.head.append(style);
+    const root=document.createElement('main');root.id='studio';root.innerHTML='<header><strong>Rustel Studio</strong><select id="studio-demo" aria-label="Demo score" disabled><option>Loading demos…</option></select><button id="load-demo" disabled>Load demo</button><button id="play">Play</button><button id="stop">Stop</button><button id="keyboard">Keyboard</button><button id="paste">Paste</button><button id="open">Open</button><button id="save">Download</button><button id="fullscreen">Fullscreen</button><button id="zen" aria-pressed="false">Zen</button><button id="reset">Reset Studio</button><span id="studio-status">Preparing audio…</span></header><canvas aria-label="Rustel Studio editor" tabindex="0"></canvas><textarea id="studio-input" aria-label="Studio text input" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea><input type="file" id="studio-file" accept=".strudel,.js,.txt" hidden>';
     document.body.append(root);const canvas=root.querySelector('canvas'),ctx=canvas.getContext('2d'),input=root.querySelector('textarea'),status=root.querySelector('#studio-status');
     const {LocalAudioHost}=await import(`./audio-host.js?v=${audioVersion}`);
     let audio=new LocalAudioHost({local_message(topic,value){if(topic==='music/status')status.textContent=String(value);}});audio.tryAutoplay=()=>{};window.rustelStudioAudio=audio;
@@ -65,6 +66,22 @@ if(command.type==='evaluate'){audio.context ||= new AudioContext({latencyHint:'i
       else if(command.type==='unsupported'){report(command.message);}
       dirty=true;
     }).catch(report);}}
+    const demoSelect=root.querySelector('#studio-demo'),loadDemo=root.querySelector('#load-demo');
+    let demos=[];
+    demoCatalog().then(entries=>{demos=entries;demoSelect.replaceChildren(...entries.map(entry=>{const option=document.createElement('option');option.value=entry.name;option.textContent=entry.name;return option;}));demoSelect.disabled=false;loadDemo.disabled=false;}).catch(error=>{demoSelect.replaceChildren(new Option('Demos unavailable',''));report(error);});
+    loadDemo.onclick=async()=>{
+      loadDemo.disabled=true;
+      try{
+        const entry=demos.find(entry=>entry.name===demoSelect.value);if(!entry)throw Error('Select a demo');
+        const text=await demoSource(entry);await pending;
+        const next=new wasm.Studio(text,demoWorkspace(studio.state(),entry,text));
+        studio.free();studio=next;window.rustelStudio=next;
+        lastFrame='';lastState='';lastSource=text;dirty=true;
+        localStorage.setItem('rustel-studio-workspace-v1',studio.state());
+        localStorage.setItem('rustel-studio-file:browser/live.strudel',text);
+        paint();status.textContent=`Loaded ${entry.name} · Play evaluates the score`;
+      }catch(error){report(error);}finally{loadDemo.disabled=false;}
+    };
     root.querySelector('#play').onclick=()=>{event(()=>studio.play());};
     root.querySelector('#reset').onclick=async()=>{
       if(resetting||!window.confirm('Reset Studio? This replaces all scores with the starter score and restores the default layout.'))return;
