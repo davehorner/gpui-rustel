@@ -1,6 +1,7 @@
 // Browser-owned Rustel: real Rust/WASM scheduling and DSP, never a JS oscillator fallback.
 export class LocalAudioHost {
   constructor(viewer){
+    this.consoleMessages=[];this.consoleListeners=new Set();
     this.viewer=viewer;this.session=`browser-${crypto.randomUUID()}`;this.generation=0;this.loadSequence=0;this.progress=null;this.frame=0;this.playing=false;this.events=[];this.sequence=0;this.error=null;this.starting=false;this.sampleRate=48000;this.loading=null;this.volume=0.25;this.transportRequests=new Map();this.transportEpoch=0;this.audioInit=null;this.initializingAudio=false;
     this.assetVersion=new URL(import.meta.url).searchParams.get('v')||'dev';
     const workerUrl=new URL('./audio-worker.js',import.meta.url);workerUrl.searchParams.set('v',this.assetVersion);
@@ -10,6 +11,13 @@ export class LocalAudioHost {
     this.worker.onerror=event=>this.failure(event.message);
     this.onCommand=event=>this.command(JSON.parse(event.detail)).catch(error=>this.response(JSON.parse(event.detail).request,false,String(error)));
     window.addEventListener('rustel-command',this.onCommand);
+  }
+  log(message,level='info'){
+    message=String(message).slice(0,4096);
+    if(this.consoleMessages.at(-1)?.message===message)return;
+    const entry={message,level,time:Date.now()};this.consoleMessages.push(entry);
+    if(this.consoleMessages.length>200)this.consoleMessages.shift();
+    for(const listener of this.consoleListeners)listener(entry);
   }
   async start(){
     const response=await fetch('./audio-demos.json');if(!response.ok)throw Error('Browser demos could not load');
@@ -27,10 +35,13 @@ export class LocalAudioHost {
     await this.load(structuredClone(this.demos[this.demo]),this.demo);
     this.tryAutoplay();
   }
-  message(topic,value){this.viewer.local_message(topic,typeof value==='string'?value:JSON.stringify(value));}
+  message(topic,value){if(topic==='music/status')this.log(value);this.viewer.local_message(topic,typeof value==='string'?value:JSON.stringify(value));}
   response(request,accepted,message=''){if(request)this.message('music/response',{request,accepted,message});}
   failure(message){this.error=String(message);this.playing=false;this.node?.port.postMessage({kind:'play',playing:false});this.message('music/status',`Browser audio error: ${message}`);this.cancelLoad(message);this.workerFailure?.(Error(message));}
   async receive(data){
+    if(data.kind==='log'&&data.generation===this.generation)this.log(data.message);
+    if(data.kind==='error'||data.kind==='asset-error')this.log(data.message,'error');
+    if(data.kind==='loaded')this.log('Loaded '+(this.loading?.demo||'score'));
     if(data.kind==='ready')this.workerReady();
     if(data.kind==='progress'){this.progress=data.message;this.message('music/status',data.message);}
     if(data.kind==='asset-error')this.error=data.message;

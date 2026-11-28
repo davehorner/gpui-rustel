@@ -21,6 +21,8 @@ Both targets use the same Nightshade stage: named-part colors, time/cycle and pi
 
 Open the same site with `?studio` to run upstream Rustel Studio entirely in the browser. Its real Ratatui editor and menus render through a WASM cell backend, with browser audio, inline scope/piano roll/spectrum, local drafts and scenes, file import/download, a mobile keyboard button and fullscreen. This route does not require WebGPU or a server. Native plugins, device APIs and filesystem workers still need browser-specific adapters. See [the Studio port, build and tests](wasm-studio/README.md).
 
+The WASM viewer also has a **Code & Console** panel. Edit the current score and press **Run** (Ctrl/Command+Enter) to evaluate it in Rustel's worker, or **Stop** to pause playback. The panel keeps a local draft and shows sample loading, evaluation errors and Rustel logs. Use `console.log('message')` for literal text; double-quoted strings follow Strudel's mini-notation rules. **Load current score** replaces the draft after confirmation. Messages are capped at 200 entries.
+
 ## Native
 
 ```powershell

@@ -137,6 +137,18 @@ impl JavaScriptEngine {
         let runtime = JsRuntime::new().map_err(|e| e.to_string())?;
         runtime.set_lane_tagging(true);
         runtime.set_native_tier(false);
+        runtime.ensure_surface().map_err(|e| e.to_string())?;
+        // The compatibility console sends structured objects to logger, while
+        // Rustel's native sink accepts text. Bridge both with readable values.
+        runtime.eval(r#"
+            globalThis.console = Object.fromEntries(['log','info','warn','error','debug'].map(level => [level, (...values) => {
+                const message = values.map(value => {
+                    if (typeof value === 'string') return value;
+                    try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
+                }).join(' ');
+                logger(message, level === 'log' || level === 'info' ? undefined : level);
+            }]));
+        "#).map_err(|e| e.to_string())?;
         let cancel = AtomicBool::new(false);
         let lanes = transpiler::on_caller_stack(|| transpiler::lane_statements(source))
             .ok_or("Could not inspect score lanes")?;
@@ -202,6 +214,9 @@ impl JavaScriptEngine {
             next_sample: 2,
             runtime,
         })
+    }
+    pub fn logs_json(&self) -> String {
+        serde_json::to_string(&self.runtime.take_logs()).unwrap_or_else(|_| "[]".into())
     }
     pub fn metadata_json(&self) -> String {
         self.metadata.to_string()

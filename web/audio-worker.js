@@ -11,10 +11,11 @@ function retire(candidate){if(!candidate)return;Promise.allSettled([...(jobs.get
 async function ensure(candidate,store,controls,sampleRate,seen=new Set()){
   for(const value of controls){const key=JSON.stringify([value.s||value.sound,value.bank,value.n]);if(seen.has(key))continue;seen.add(key);await store.ensure(candidate,value,sampleRate);}
 }
+function logs(candidate,generation){for(const message of JSON.parse(candidate.logs_json?.()||'[]').slice(-100))self.postMessage({kind:'log',generation,message});}
 function render(data){
   if(data.generation!==generation||!engine)return;
   try{
-    const start=engine.frame(),pcm=engine.render(4096),events=JSON.parse(engine.events_json());
+    const start=engine.frame(),pcm=engine.render(4096),events=JSON.parse(engine.events_json());logs(engine,generation);
     pipe.postMessage({kind:'chunk',generation,start,pcm},[pcm.buffer]);
     self.postMessage({kind:'events',generation,events,visuals:engine.visual_audio_json?JSON.parse(engine.visual_audio_json()):[]});
     if(assets){
@@ -44,7 +45,7 @@ self.onmessage=async({data})=>{
           metadata.sample_banks=[...(store.registrations?.get(next)?.keys()||[])];
         }else next=new BrowserEngine(JSON.stringify(data.score),data.sampleRate);
         if(serial!==loadSerial)throw Error('Score load cancelled');
-        retire(engine);engine=next;next=null;assets=store;generation=data.generation;self.postMessage({kind:'loaded',generation,metadata});
+        retire(engine);engine=next;next=null;assets=store;generation=data.generation;self.postMessage({kind:'loaded',generation,metadata});logs(engine,generation);
       }finally{next?.free();}
     }
   }catch(error){self.postMessage({kind:'error',generation:data.generation,message:String(error)});}

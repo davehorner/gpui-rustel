@@ -25,7 +25,7 @@ def main():
         audio_hash.update(file.read_bytes())
     host_version=audio_hash.hexdigest()[:16]
     viewer_wasm=ROOT/"target/wasm32-unknown-unknown/web/gpui_rustel_app.wasm"
-    viewer_version=hashlib.sha256(viewer_wasm.read_bytes()+(APP/"web/startup.js").read_bytes()+(APP/"web/index.html").read_bytes()+host_version.encode()).hexdigest()[:16]
+    viewer_version=hashlib.sha256(viewer_wasm.read_bytes()+(APP/"web/startup.js").read_bytes()+(APP/"web/index.html").read_bytes()+(APP/"web/console.js").read_bytes()+host_version.encode()).hexdigest()[:16]
     subprocess.run([tool,str(viewer_wasm),"--target","web","--out-dir",str(args.out/"pkg"/viewer_version),"--no-typescript","--out-name","gpui_rustel"],check=True)
     scores=args.out/"scores";scores.mkdir(exist_ok=True)
     catalog=[]
