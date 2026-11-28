@@ -101,6 +101,9 @@ fn watch_catalogue(
     }
     Ok(watcher)
 }
+fn same_score_source(left: &str, right: &str) -> bool {
+    left.replace("\r\n", "\n") == right.replace("\r\n", "\n")
+}
 fn identify_demo(
     snapshot: &mut music_link::Snapshot,
     demos: &std::collections::BTreeMap<String, PathBuf>,
@@ -110,7 +113,7 @@ fn identify_demo(
     }
     if let Some((name, _)) = demos
         .iter()
-        .find(|(_, path)| source(path).is_ok_and(|text| text == snapshot.source))
+        .find(|(_, path)| source(path).is_ok_and(|text| same_score_source(&text, &snapshot.source)))
     {
         if snapshot.demo != *name {
             snapshot.demo = name.clone();
@@ -352,7 +355,6 @@ impl Hosted {
                     Err(error)=>{let _=tx.try_send(Output::Status(format!("Demo folder watcher unavailable: {error}")));None}
                 };
                 let mut demos=catalogue(&catalogue_config);
-                let mut catalogue_generation=0;
                 let mut epoch=1;
                 let mut adapter=adapter(&config,&session,epoch,&demos);
                 let mut pending_demo=None::<String>;
@@ -397,7 +399,13 @@ impl Hosted {
                                         let mut next=config.clone();next.score=score;
                                         let child=start(&next).map_err(|e|e.to_string())?;
                                         drop(process.replace(child));config=next;epoch+=1;
-                                        adapter=self::adapter(&config,&session,epoch,&demos);adapter.snapshot.demo="Editor".into();
+                                        // Resolve identity from the submitted source before any
+                                        // startup snapshots can carry the generic Editor label.
+                                        demos=catalogue(&catalogue_config);
+                                        adapter=self::adapter(&config,&session,epoch,&demos);
+                                        adapter.snapshot.demo="Editor".into();
+                                        let mut named=adapter.snapshot.clone();named.source=text.clone();
+                                        identify_demo(&mut named,&demos);adapter.snapshot.demo=named.demo;
                                         if let Some(previous)=pending_demo.replace(request.clone()) {let _=tx.try_send(Output::Response(Response {request:previous,accepted:false,message:"Score load superseded".into()}));}
                                         Ok(())
                                     });
@@ -469,8 +477,7 @@ impl Hosted {
                                 Ok(values) => {
                                     for mut value in values {
                                         if let Output::Snapshot(snapshot)=&mut value {
-                                            if catalogue_generation!=snapshot.generation {
-                                                catalogue_generation=snapshot.generation;
+                                            if record.contains("\"ui_layout\"") {
                                                 identify_demo(snapshot,&demos);
                                                 adapter.snapshot.demo=snapshot.demo.clone();
                                             }
@@ -534,5 +541,22 @@ impl Drop for Hosted {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    #[test]
+    fn saved_windows_scores_match_mcp_line_endings_without_ignoring_edits() {
+        assert!(same_score_source(
+            "const a = 1;\r\nnote('c4')\r\n",
+            "const a = 1;\nnote('c4')\n"
+        ));
+        assert!(!same_score_source("note('c4')\r\n", "note('d4')\n"));
+        assert!(!same_score_source(
+            "console.log('\\r\\n')",
+            "console.log('\\n')"
+        ));
     }
 }
