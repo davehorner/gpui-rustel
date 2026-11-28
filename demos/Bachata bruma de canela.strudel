@@ -1,0 +1,29 @@
+// BACHATA BRUMA DE CANELA
+// 120 BPM, G minor. 64 bars: intro / verse / chorus / bridge / chorus / outro.
+// Eight instrument lanes, sampled guitars and bass, Dirt percussion.
+setcpm(120/4)
+samples({
+  bruma_hand: ['east/001_ohkawa_mute.wav','east/002_ohkawa_open.wav'],
+  bruma_hat: ['hh/000_hh3closedhh.wav','hh/007_hh3openhh.wav'],
+  bruma_kick: ['bd/BT0A0A7.wav'],
+  bruma_tick: ['east/000_nipon_wood_block.wav']
+}, 'https://strudel.b-cdn.net/Dirt-Samples/')
+const harmony = chord("<Gm9 Eb^7 Cm9 D7>").dict("ireal")
+const pausa = s("~")
+const bajo = note("<[g1 ~ d2 g2 ~ d2 f2 d2] [eb2 ~ bb2 eb3 ~ bb2 d3 bb2] [c2 ~ g2 c3 ~ g2 bb2 g2] [d2 ~ a2 d3 ~ c3 a2 fs2]>").s("gm_acoustic_bass").gain(.26).release(.13).lpf(900)._scope()
+const nylon = harmony.voicing().s("gm_acoustic_guitar_nylon").struct("x ~ x x ~ x ~ [x x]").gain(.14).decay(.14).sustain(.07).release(.07).pan(-.28)
+const acero = harmony.voicing().s("gm_acoustic_guitar_steel").struct("~ x ~ ~ x ~ [x x] ~").gain(.08).decay(.10).sustain(.04).release(.05).hpf(650).pan(.28)
+const requinto = note("<[d5 g5 bb5 a5 g5 ~ f5 d5] [g5 f5 eb5 d5 bb4 ~ d5 g5] [g5 c6 bb5 g5 eb5 d5 c5 ~] [a4 d5 fs5 a5 g5 fs5 d5 ~]>").s("gm_acoustic_guitar_steel").gain(.21).attack(.003).release(.14).room(.18).delay(.10)._pianoroll()
+const respuesta = note("<[~ ~ bb4 d5 ~ g5 ~ d5] [~ ~ g4 bb4 ~ eb5 ~ d5] [~ ~ eb5 g5 ~ bb5 ~ g5] [~ ~ fs4 a4 ~ d5 ~ fs5]>").s("sine").gain(.045).attack(.008).decay(.22).sustain(.08).release(.24).room(.25).pan(.12)
+const guira = s("bruma_hat:0*8").gain(".08 .035 .105 .045 .085 .04 .125 .055").hpf(6100).pan(-.16)
+const martillo = s("bruma_hand:0 ~ bruma_hand:1 bruma_hand:0 ~ bruma_hand:1 [bruma_hand:0 bruma_hand:1] ~").gain(.12).pan(.18)._spectrum()
+const pulso = stack(s("bruma_kick ~ ~ ~ bruma_kick ~ ~ bruma_kick").gain(.09),s("~ ~ bruma_tick ~ ~ ~ bruma_tick ~").gain(.055))
+// The same section lengths keep every dancer and instrument on the arrangement.
+bass: arrange([4,bajo],[16,bajo],[16,bajo],[8,bajo.slow(2)],[16,bajo],[4,bajo])
+nylon: arrange([4,nylon],[16,nylon],[16,nylon],[8,nylon.slow(2)],[16,nylon],[4,nylon])
+steel: arrange([4,pausa],[16,acero],[16,acero],[8,pausa],[16,acero],[4,acero])
+lead: arrange([4,pausa],[16,requinto],[16,requinto],[8,requinto.slow(2)],[16,requinto],[4,pausa])
+answer: arrange([4,pausa],[16,pausa],[16,respuesta],[8,respuesta],[16,respuesta],[4,respuesta])
+scrape: arrange([4,guira],[16,guira],[16,guira],[8,guira],[16,guira],[4,guira])
+hand_drums: arrange([4,martillo],[16,martillo],[16,martillo],[8,martillo.slow(2)],[16,martillo],[4,martillo])
+pulse: arrange([4,pulso],[16,pulso],[16,pulso],[8,pausa],[16,pulso],[4,pulso])
