@@ -27,7 +27,9 @@ fn catalogue(config: &Config) -> std::collections::BTreeMap<String, PathBuf> {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
-    demos.insert(label, config.score.clone());
+    if config.score.is_file() {
+        demos.insert(label, config.score.clone());
+    }
     if let Some(directory) = &config.demo_dir
         && let Ok(entries) = std::fs::read_dir(directory)
     {
@@ -59,6 +61,63 @@ fn catalogue(config: &Config) -> std::collections::BTreeMap<String, PathBuf> {
         }
     }
     demos
+}
+fn watch_catalogue(
+    config: &Config,
+    requests: mpsc::SyncSender<Request>,
+    dirty: Arc<AtomicBool>,
+) -> Result<notify::RecommendedWatcher, String> {
+    use notify::Watcher;
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        let relevant = match event {
+            Ok(event) => {
+                !matches!(event.kind, notify::EventKind::Access(_))
+                    && (event.paths.is_empty()
+                        || event
+                            .paths
+                            .iter()
+                            .any(|path| path.extension().is_none_or(|ext| ext == "strudel")))
+            }
+            Err(_) => true,
+        };
+        if relevant && !dirty.swap(true, Ordering::AcqRel) {
+            // If the control queue is full, its next queued request consumes
+            // the dirty flag. Never block the OS watcher during shutdown.
+            let _ = requests.try_send(Request::CatalogueChanged);
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    let mut directories = std::collections::BTreeSet::new();
+    if let Some(directory) = &config.demo_dir {
+        directories.insert(directory.clone());
+    }
+    if let Some(directory) = config.score.parent() {
+        directories.insert(directory.to_owned());
+    }
+    for directory in directories {
+        watcher
+            .watch(&directory, notify::RecursiveMode::NonRecursive)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(watcher)
+}
+fn identify_demo(
+    snapshot: &mut music_link::Snapshot,
+    demos: &std::collections::BTreeMap<String, PathBuf>,
+) -> bool {
+    if snapshot.source.is_empty() {
+        return false;
+    }
+    if let Some((name, _)) = demos
+        .iter()
+        .find(|(_, path)| source(path).is_ok_and(|text| text == snapshot.source))
+    {
+        if snapshot.demo != *name {
+            snapshot.demo = name.clone();
+            return true;
+        }
+    }
+    false
 }
 fn source(path: &std::path::Path) -> io::Result<String> {
     let mut value = String::new();
@@ -158,6 +217,7 @@ fn adapter(
 enum Request {
     Control(Box<Command>),
     Restart,
+    CatalogueChanged,
 }
 struct Process {
     child: Child,
@@ -269,6 +329,7 @@ impl Hosted {
         let (tx, events) = mpsc::sync_channel(64);
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
+        let watcher_requests = requests.clone();
         let thread = thread::Builder::new()
             .name("rustel-supervisor".into())
             .spawn(move || {
@@ -282,7 +343,16 @@ impl Hosted {
                 );
                 let mut config=config;
                 let mut editor_files=EditorFiles(Vec::new());
-                let demos=catalogue(&config);
+                // Keep the original catalogue root when editor execution switches
+                // playback to a private sibling file.
+                let catalogue_config=config.clone();
+                let catalogue_dirty=Arc::new(AtomicBool::new(false));
+                let _catalogue_watcher=match watch_catalogue(&catalogue_config,watcher_requests,catalogue_dirty.clone()) {
+                    Ok(watcher)=>Some(watcher),
+                    Err(error)=>{let _=tx.try_send(Output::Status(format!("Demo folder watcher unavailable: {error}")));None}
+                };
+                let mut demos=catalogue(&catalogue_config);
+                let mut catalogue_generation=0;
                 let mut epoch=1;
                 let mut adapter=adapter(&config,&session,epoch,&demos);
                 let mut pending_demo=None::<String>;
@@ -290,7 +360,14 @@ impl Hosted {
                 let mut process = Some(process);
                 while !stopped.load(Ordering::Acquire) {
                     for request in rx.try_iter().take(64) {
+                        if catalogue_dirty.swap(false,Ordering::AcqRel) {
+                            let next=catalogue(&catalogue_config);let changed=next!=demos;
+                            demos=next;adapter.snapshot.demos=demos.keys().cloned().collect();
+                            let renamed=identify_demo(&mut adapter.snapshot,&demos);
+                            if changed||renamed {let _=tx.try_send(Output::Snapshot(Box::new(adapter.snapshot.clone())));}
+                        }
                         match request {
+                            Request::CatalogueChanged=>{},
                             Request::Restart => {
                                 if let Some(request)=pending_demo.take() {let _=tx.try_send(Output::Response(Response {request,accepted:false,message:"Score load superseded by restart".into()}));}
                                 drop(process.take());
@@ -390,7 +467,14 @@ impl Hosted {
                             }
                             match adapter.ingest(&record) {
                                 Ok(values) => {
-                                    for value in values {
+                                    for mut value in values {
+                                        if let Output::Snapshot(snapshot)=&mut value {
+                                            if catalogue_generation!=snapshot.generation {
+                                                catalogue_generation=snapshot.generation;
+                                                identify_demo(snapshot,&demos);
+                                                adapter.snapshot.demo=snapshot.demo.clone();
+                                            }
+                                        }
                                         if matches!(&value,Output::Snapshot(s) if s.generation>0 && !s.source.is_empty())
                                             && let Some(request)=pending_demo.take() {
                                             let _=tx.try_send(Output::Response(Response {request,accepted:true,message:String::new()}));
