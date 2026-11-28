@@ -35,6 +35,18 @@ cargo run --release --locked -- --rustel=FULL/PATH/TO/rustel.exe --score=FULL/PA
 
 Hub mode receives the compatible music-link protocol used by [bespoke_rustel](https://github.com/davehorner/bespoke_rustel). Owned mode starts the upstream CLI, reads NDJSON and sends acknowledged controls, with child cleanup at app shutdown. Use `--silent` for validation without a device. Native presentation defaults to Vulkan sharing on supported Windows adapters with readback fallback. The score is never rewritten by the viewer. See [the adapter notes](upstream-adapter/README.md).
 
+## Desktop scene MCP
+
+Desktop Rustel enables the same Nightshade viewer MCP endpoint on **http://127.0.0.1:9620**. Use `--agent-port=PORT` to change it or `--no-agent` to disable it. It binds to loopback only. `tools/list` gives the authoritative scene-tool catalogue; the endpoint uses the viewer's existing POST JSON-RPC transport, not a new Rustel server or a full modern Streamable HTTP transport.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:9620 -Method Post -ContentType application/json -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+Run `python scripts/check_mcp.py` with desktop Rustel open to verify initialization, tool discovery, procedural scene discovery and a live transform query.
+
+Scene queries and edits operate on the actual music-stage world. Procedural entities are added to the viewer catalogue and their rows refresh twice per second. Rustel regenerates note bars, fox transforms and the music camera, so edits to those generated values can be overwritten on subsequent updates. This does not expose Rustel score evaluation or music playback as MCP tools; viewer animation playback controls affect scene animation, not the audio transport. The WASM/static Pages app does not run a native HTTP MCP server. Port-binding failures remain viewer notices; the startup line reports the requested address, not confirmation that binding succeeded.
+
 ## Publishing
 
 `Publish WASM to GitHub Pages` builds the GPUI application and JavaScript-enabled Rustel engine from pinned source and deploys on pushes to main/master or manual dispatch. Project-relative asset URLs work under `/gpui-rustel/`. The single-threaded browser app starts directly over HTTPS without waiting for an isolation service worker. Remote samples require CORS. WebAudio autoplays when the browser permits; otherwise Play unlocks it.

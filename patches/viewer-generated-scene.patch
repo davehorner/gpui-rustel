@@ -1,0 +1,21 @@
+--- a/apps/viewer/src/core.rs
++++ b/apps/viewer/src/core.rs
+@@ -1095,3 +1095,18 @@
+         );
+     }
+ }
++
++/// Add caller-owned procedural scene entities to the viewer/MCP catalogue.
++/// Does not transfer ownership or change selection. Call again to refresh rows.
++pub fn register_generated_scene_entities(world: &mut World, entities: &[Entity]) {
++    let Some(mut viewer) = world.resources.remove::<crate::resources::ViewerResources>() else { return; };
++    viewer.model.entities.retain(|entity| world.storage.is_alive(*entity));
++    let mut known: std::collections::HashSet<_> = viewer.model.entities.iter().copied().collect();
++    for &entity in entities {
++        if world.storage.is_alive(entity) && known.insert(entity) {
++            viewer.model.entities.push(entity);
++        }
++    }
++    crate::commands::scene::build_rows(&mut viewer, &world.storage);
++    world.resources.insert(viewer);
++}

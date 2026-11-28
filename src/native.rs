@@ -8,6 +8,8 @@ pub fn run() {
     let mut score = None;
     let mut demo_dir = Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("demos"));
     let mut silent = false;
+    let mut agent_port = Some(9620u16);
+    let mut no_agent = false;
     let mut backend = gpui_nightshade::presentation::BackendPreference::Auto;
     for arg in std::env::args().skip(1) {
         if let Some(value) = arg.strip_prefix("--hub=") {
@@ -20,11 +22,19 @@ pub fn run() {
             score = Some(std::path::PathBuf::from(value));
         } else if let Some(value) = arg.strip_prefix("--demos=") {
             demo_dir = Some(value.into());
+        } else if let Some(value) = arg.strip_prefix("--agent-port=") {
+            let port = value
+                .parse::<u16>()
+                .expect("agent port must be an integer from 1 to 65535");
+            assert!(port != 0, "agent port must be from 1 to 65535");
+            agent_port = Some(port);
+        } else if arg == "--no-agent" {
+            no_agent = true;
         } else if arg == "--silent" {
             silent = true;
         } else if arg == "--help" {
             println!(
-                "gpui-rustel [--hub=127.0.0.1:9612] [--presentation=auto|vulkan-shared|readback] [--rustel=EXE --score=FILE [--silent]]"
+                "gpui-rustel [--hub=127.0.0.1:9612] [--presentation=auto|vulkan-shared|readback] [--rustel=EXE --score=FILE [--silent]] [--agent-port=9620 | --no-agent]"
             );
             return;
         } else {
@@ -44,7 +54,15 @@ pub fn run() {
             "owned mode requires both --rustel=EXE and --score=FILE; --silent applies only to owned mode"
         ),
     };
-    let settings = Arc::new(Mutex::new(Visual::default()));
+    let mut visual = Visual::default();
+    visual.agent_port = if no_agent { None } else { agent_port };
+    let settings = Arc::new(Mutex::new(visual));
+    if !no_agent {
+        eprintln!(
+            "Nightshade scene MCP requested on http://127.0.0.1:{} (POST JSON-RPC)",
+            agent_port.unwrap()
+        );
+    }
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {

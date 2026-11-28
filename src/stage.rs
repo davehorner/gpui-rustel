@@ -49,6 +49,8 @@ pub struct Stage {
     foxes: Vec<Fox>,
     fox_scale: f32,
     fox_floor: f32,
+    #[cfg(not(target_arch = "wasm32"))]
+    scene_catalogue_at: web_time::Instant,
     camera: CameraPose,
     camera_zoom_offset: glm::Vec3,
     camera_reframe: u64,
@@ -85,9 +87,14 @@ impl Stage {
         h: u32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let connection = ViewerConnection::default();
+        #[cfg(not(target_arch = "wasm32"))]
+        let agent_port = settings.lock().unwrap().agent_port;
+        #[cfg(target_arch = "wasm32")]
+        let agent_port: Option<u16> = None;
         let mut host = ViewerRuntime::with_options(
             ViewerArguments {
-                no_agent: true,
+                no_agent: agent_port.is_none(),
+                agent_port,
                 preview: true,
                 ..Default::default()
             },
@@ -160,6 +167,8 @@ impl Stage {
             foxes: vec![],
             fox_scale,
             fox_floor,
+            #[cfg(not(target_arch = "wasm32"))]
+            scene_catalogue_at: web_time::Instant::now() - std::time::Duration::from_secs(1),
             label_eye: glm::Vec3::zeros(),
             camera_zoom_offset: glm::Vec3::zeros(),
             camera_reframe: 0,
@@ -661,6 +670,24 @@ impl ViewportHost for Stage {
     }
     fn render(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.update();
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.settings.lock().unwrap().agent_port.is_some()
+            && self.scene_catalogue_at.elapsed() >= std::time::Duration::from_millis(500)
+        {
+            // The viewer normally indexes imported models. Register Rustel's
+            // generated entities too so MCP can discover the actual stage.
+            let mut entities = self.boxes.clone();
+            entities.extend(self.labels.iter().map(|label| label.entity));
+            for fox in &self.foxes {
+                entities.push(fox.root);
+                entities.extend(fox.meshes.iter().copied());
+            }
+            nightshade_viewer_core::register_generated_scene_entities(
+                &mut self.host.world,
+                &entities,
+            );
+            self.scene_catalogue_at = web_time::Instant::now();
+        }
         self.host.render()
     }
     fn set_camera(&mut self, pose: CameraPose) {

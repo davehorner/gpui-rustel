@@ -25,6 +25,8 @@ pub struct Visual {
     pub rests: bool,
     pub orbit: bool,
     pub camera_reframe: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub agent_port: Option<u16>,
     pub fox_opacity: f32,
     pub gain: f32,
     pub zoom: f32,
@@ -42,6 +44,8 @@ impl Default for Visual {
             rests: false,
             orbit: false,
             camera_reframe: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            agent_port: None,
             fox_opacity: 0.65,
             gain: 4.,
             zoom: 1.,
