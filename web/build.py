@@ -52,5 +52,10 @@ def main():
     shutil.copytree(audio/"patches",source/"patches",dirs_exist_ok=True)
     studio_source=args.out/"source/rustel-browser-studio"
     shutil.copytree(APP/"wasm-studio",studio_source,dirs_exist_ok=True,ignore=shutil.ignore_patterns("target","__pycache__"))
+    # Studio's const identities share these exact sources with the GPUI stage.
+    for relative in ["src/source_identity.rs","vendor/music-link/src/colors.rs"]:
+        shared_source=args.out/"source"/relative
+        shared_source.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(APP/relative,shared_source)
     print(f"Built {args.out}\nServe: python gpui-rustel/web/serve.py --directory {args.out}")
 if __name__=="__main__":main()

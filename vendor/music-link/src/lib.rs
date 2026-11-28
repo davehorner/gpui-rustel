@@ -6,19 +6,8 @@ pub const COMMAND_TOPIC: &str = "music/command";
 pub const RESPONSE_TOPIC: &str = "music/response";
 pub const AUDIO_TOPIC: &str = "music/audio";
 
-/// Stable UTF-8 name hash → bright hue. No dependency on declaration/lane order.
-/// RGB travels with the event so every client uses exactly the same color.
-pub fn named_color(name: &str) -> [u8; 3] {
-    let hash = name.bytes().fold(2166136261_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16777619));
-    let hue = hash % 1536;
-    let ramp = (hue % 256) as u8;
-    let rgb = match hue / 256 {
-        0 => [255, ramp, 0], 1 => [255 - ramp, 255, 0],
-        2 => [0, 255, ramp], 3 => [0, 255 - ramp, 255],
-        4 => [ramp, 0, 255], _ => [255, 0, 255 - ramp],
-    };
-    rgb.map(|v| 64 + (u16::from(v) * 180 / 255) as u8)
-}
+mod colors;
+pub use colors::named_color;
 
 #[cfg(test)]
 mod named_part_tests {
@@ -207,9 +196,20 @@ pub fn virtual_parent(id: &str) -> Option<(&str, &str)> {
     Some((tail.get(..length)?, tail.get(length..)?))
 }
 
+// Browser JavaScript preserves the entire 64-bit visual mask as a string.
+fn visual_mask<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Mask { Number(u64), Text(String) }
+    match Mask::deserialize(deserializer)? {
+        Mask::Number(value) => Ok(value),
+        Mask::Text(value) => value.parse().map_err(serde::de::Error::custom),
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Event {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "visual_mask")]
     pub ui_visuals: u64,
     /// Producer-resolved sound, mini token and controls for block faces.
     #[serde(default)]

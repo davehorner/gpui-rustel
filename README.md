@@ -13,7 +13,7 @@ python web/build.py
 python web/serve.py
 ```
 
-Open http://127.0.0.1:18766/. Bachata loads by default and starts automatically when browser audio permissions allow; otherwise, click **Play** to enable it. The dropdown includes the same JavaScript `.strudel` sources as the native app: Arpeggio, Counterpoint, Many lanes, Bachata, Sample bank and Custom samples. QuickJS, scheduling and actual Rustel DSP run in WASM, with sample-bank fetching, browser decoding and General MIDI soundfont zones. No native engine process is required. See [audio architecture, limitations and tests](wasm-audio/README.md).
+Open http://127.0.0.1:18766/. **Bachata bruma de canela.strudel** loads by default and starts automatically when browser audio permissions allow; otherwise, click **Play** to enable it. It is also the default for new and reset Studio workspaces; saved drafts and explicit demo links take precedence. The dropdown includes the same JavaScript `.strudel` sources as the native app: Arpeggio, Counterpoint, Many lanes, Bachata, Sample bank and Custom samples. QuickJS, scheduling and actual Rustel DSP run in WASM, with sample-bank fetching, browser decoding and General MIDI soundfont zones. No native engine process is required. See [audio architecture, limitations and tests](wasm-audio/README.md).
 
 Both targets use the same Nightshade stage: named-part colors, time/cycle and pitch/MIDI axes, lane labels, and an embedded skinned Fox for every visible lane. Each fox uses its const color; its Run clip and box-to-box jump arc follow the music clock and freeze on pause. Camera controls are hidden by default; **Show camera** reveals the left panel with Fit/Top/Front/Side views, rotation, pan, deep zoom, Fox focus and 35/65/100% fox opacity. **Fullscreen** toggles the viewer window. Stage labels keep a stable projected size as the camera zooms. Mouse-wheel zoom supports the same extended range. On mobile, one-finger drag zooms, two-finger drag pans, pinching zooms toward the point between the fingers, twisting two fingers rotates around the scene, and three-finger drag adjusts yaw and pitch. The browser uses WebGPU with asynchronous readback; native presentation uses Vulkan sharing where available. Const declarations and references use stable name colors, with note identities recovered from exact runtime source contexts when the producer does not supply them. `?mini=1` starts with the earlier mini-notation synth demos. `?hub=wss%3A%2F%2FYOUR_SERVER` connects a native producer instead; HTTPS pages require a secure WebSocket.
 
@@ -28,6 +28,19 @@ This native pane starts no browser, WASM audio host, Studio engine worker or add
 All `.strudel` scores in `demos/`, including the Bachata, Salsa and spoken-count practice arrangements, ship in the shared WASM catalogue. Desktop GPUI discovers that folder automatically. Single-instrument lanes stay unexpanded by default, giving each part one named, color-matched fox dancer; mixed lanes still expand into named parts. `Bachata ocho luceros.strudel` demonstrates eight independently animated instrument characters.
 
 Open the same site with `?studio` to run upstream Rustel Studio entirely in the browser. Its real Ratatui editor and menus render through a WASM cell backend, with browser audio, inline scope/piano roll/spectrum, local drafts and scenes, file import/download, a mobile keyboard button and fullscreen. This route does not require WebGPU or a server. Native plugins, device APIs and filesystem workers still need browser-specific adapters. See [the Studio port, build and tests](wasm-studio/README.md).
+
+Studio supports colored fox tracks in both 2D and the actual 3D stage:
+
+```javascript
+$: note("c3 e3 g3").s("sine")._foxy() // this pattern, light 2D
+_all_foxy()                           // every part, light 2D
+// Use either call with {mode: "3d"} for the real Nightshade stage:
+// _all_foxy({mode: "3d"})
+```
+
+The 2D foxes run across stationary thin note bars with animated legs, then jump to the next note. Rests become gaps to jump across; chords land on the highest note. They keep a fixed facing direction and share the stage's const-name colors. `{cycles: 8}` changes the visible time window; `{height: 48}` reserves more rows for a large arrangement. The first visible `{mode: "3d"}` widget uses one shared stage; other widgets keep their 2D view. On desktop this reuses the existing viewport and runtime. In the browser it lazily loads one WebGPU viewer that receives Studio's snapshots, without starting another audio host. Hidden 3D views stop rendering. Choose **Foxy Studio.strudel** for a mixed 2D/3D example. Native `_foxy` scores need the maintained runtime built with `python upstream-adapter/build_runtime.py`; an older clean upstream executable will not recognize these methods.
+
+Link directly to a Studio demo with `?studio&demo=Foxy%20Studio.strudel`. Demo names may omit `.strudel` and are matched without case sensitivity; `?sudio` is accepted as an alias. The link opens the verified catalogue score without autoplay and preserves existing drafts. Reopening the same score reuses an unchanged scene. Loading a demo also updates the address bar so its link can be copied.
 
 The WASM viewer also has a **Code & Console** panel. Edit the current score and press **Run** (Ctrl/Command+Enter) to evaluate it in Rustel's worker, or **Stop** to pause playback. The panel keeps a local draft and shows sample loading, evaluation errors and Rustel logs. Use `console.log('message')` for literal text; double-quoted strings follow Strudel's mini-notation rules. **Load current score** replaces the draft after confirmation. Messages are capped at 200 entries.
 

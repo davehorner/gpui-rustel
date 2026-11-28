@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {LocalAudioHost} from './audio-host.js';
+import {DEFAULT_DEMO} from './demo-catalog.js';
 const files=new Map(readdirSync(new URL('../demos/',import.meta.url)).filter(n=>n.endsWith('.strudel')).map(name=>[name,readFileSync(new URL('../demos/'+name,import.meta.url))]));
 const catalog=[...files].map(([name,bytes])=>({name,url:'./scores/'+name,sha256:createHash('sha256').update(bytes).digest('hex')}));
 globalThis.window={addEventListener(){},removeEventListener(){}};
@@ -39,7 +40,7 @@ const settle=()=>new Promise(resolve=>setTimeout(resolve,10));
 const make=()=>new LocalAudioHost({local_message(){}});
 const command=(host,action)=>host.command({session:host.session,generation:host.generation,request:crypto.randomUUID(),transport:{action}});
 // Browsers that block autoplay must still finish startup and accept an explicit Play.
-let host=make();await host.start();await settle();assert.equal(host.demo,'Bachata.strudel');assert.equal(host.score.source,files.get('Bachata.strudel').toString());assert.equal(host.playing,false);assert.equal(nodes,0);
+let host=make();await host.start();await settle();assert.equal(host.demo,DEFAULT_DEMO);assert.equal(host.score.source,files.get(DEFAULT_DEMO).toString());assert.equal(host.playing,false);assert.equal(nodes,0);
 permitted=true;await command(host,'play');assert.equal(host.playing,true);assert.equal(nodes,1,'autoplay and Play must share one audio graph');assert.equal(host.worker.loads,1,'matching sample rates must reuse the prepared banks instead of loading a second engine');
 await command(host,'pause');assert.equal(host.playing,false);await command(host,'play');assert.equal(host.playing,true);assert.equal(nodes,1);host.close();
 // Existing browser audio permission starts the default arrangement without a click.
@@ -53,6 +54,6 @@ holdInitialization=false;failFirstLoad=true;permitted=true;const messages=[];
 host=new LocalAudioHost({local_message(topic,value){messages.push([topic,value]);}});
 await assert.rejects(host.start(),/score evaluation deadline/);host.failure('score evaluation deadline');host.publish();
 const snapshot=JSON.parse(messages.findLast(([topic])=>topic==='music/snapshot')[1]);
-assert(snapshot.demos.includes('Bachata.strudel'));assert.equal(snapshot.transport.paused,true);
-await command(host,'play');assert.equal(host.playing,true);assert.equal(host.demo,'Bachata.strudel');assert.equal(host.worker.loads,2);host.close();
+assert(snapshot.demos.includes(DEFAULT_DEMO));assert.equal(snapshot.transport.paused,true);
+await command(host,'play');assert.equal(host.playing,true);assert.equal(host.demo,DEFAULT_DEMO);assert.equal(host.worker.loads,2);host.close();
 console.log('PASS: default Bachata, allowed autoplay, blocked autoplay + manual Play, single audio graph, pause cancellation, stop during initialization, restart and recovery from initial score refusal');

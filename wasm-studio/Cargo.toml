@@ -10,6 +10,12 @@ crate-type = ["cdylib", "rlib"]
 [workspace]
 
 [dependencies]
+oxc_allocator = "0.144.0"
+oxc_ast = "0.144.0"
+oxc_ast_visit = "0.144.0"
+oxc_parser = "0.144.0"
+oxc_span = "0.144.0"
+oxc_semantic = "0.144.0"
 rustel-studio = { path = "../.build-sources/rustel-browser-engine/crates/studio", default-features = false }
 serde_json = "1"
 rustel-transpiler = { path = "../.build-sources/rustel-browser-engine/crates/transpiler" }

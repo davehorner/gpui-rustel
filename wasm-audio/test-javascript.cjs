@@ -35,4 +35,13 @@ for(const root of ['F','C']){
  assert(chords[0].length>0,'major-seventh alias must produce notes');assert.deepEqual(chords[0],chords[1]);
 }
 assert.throws(()=>new JavaScriptEngine('while(true){}',48000,'{}'));
+// Visual declarations cannot create, silence or reorder emitting lanes.
+const foxySource='$: note("c3").s("sine")._foxy()\n$: note("e4").s("triangle")\n_all_foxy({mode:"3d"})';
+const foxes=new JavaScriptEngine(foxySource,48000,'{}');
+assert.equal(JSON.parse(foxes.metadata_json()).lanes.length,2);
+assert(foxes.render(4096).some(v=>Math.abs(v)>.001));
+const foxEvents=JSON.parse(foxes.events_json());
+assert(foxEvents.some(e=>e.lane==='#0'&&e.ui_visuals==='1'));
+assert(foxEvents.some(e=>e.lane==='#1'&&e.ui_visuals==='0'));
+foxes.free();
 console.log(JSON.stringify({demos:reports,installedPcm:true,scoreEffects:true,runawayJavascriptRefused:true},null,2));

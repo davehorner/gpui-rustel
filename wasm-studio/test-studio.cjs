@@ -44,3 +44,28 @@ for(const name of fs.readdirSync(path.resolve(__dirname,'../demos')).filter(name
  assert(JSON.parse(demo.commands()).some(command=>command.type==='evaluate'),`Studio rejected demo: ${name}`);demo.free();
 }
 console.log('PASS: all bundled demos pass Studio preflight');
+
+// Foxy registers inline layout without adding an emitting lane. Only the
+// requesting pattern is tagged; all_foxy displays the complete event stream.
+const foxySource='const bass=note("c3").s("sine");\n$: bass._foxy({mode:"3d"})\n_all_foxy()\n';
+const foxy=new Studio(foxySource);foxy.play();
+const foxyEval=JSON.parse(foxy.commands()).find(c=>c.type==='evaluate');assert(foxyEval);
+foxy.evaluated(foxyEval.request,foxyEval.revision,foxySource,7);
+foxy.transport(true,7,0,.5);
+foxy.events(JSON.stringify([{id:42,cycle:0,duration:1,pitch:48,gain:.5,sound:'sine',lane:'#0',ui_visuals:'1',context:[[11,21]]}]),7,0,.5);
+const foxyFrame=JSON.parse(foxy.frame(130,80));
+assert.equal(foxyFrame.foxy.length,1,'only the 3D request exposes a host surface');
+assert.equal(foxyFrame.foxy[0].slot,0);assert.equal(foxyFrame.foxy[0].all,false);
+assert(foxyFrame.foxy[0].x>0&&foxyFrame.foxy[0].y>0,'host region must use editor coordinates, not the scratch layer origin');
+assert.match(foxyFrame.cells.map(c=>c[0]).join(''),/bass/,'const identity reaches the colored track');
+assert(foxyFrame.cells.some(c=>/[\u2801-\u28ff]/u.test(c[0])),'2D fox and note geometry must be drawn');
+foxy.toggle_zen();foxy.frame(100,35);foxy.free();
+console.log('PASS: Foxy inline layout, tagged 3D region, 2D geometry and const identity');
+const allFoxSource='$: note("c3").s("sine")\n_all_foxy({mode:"3d",height:12})\n';
+const allFox=new Studio(allFoxSource);allFox.play();
+const allEval=JSON.parse(allFox.commands()).find(c=>c.type==='evaluate');assert(allEval);
+allFox.evaluated(allEval.request,allEval.revision,allFoxSource,8);allFox.transport(true,8,0,.5);
+const allFrame=JSON.parse(allFox.frame(100,60));
+assert.equal(allFrame.foxy.length,1,'standalone all_foxy must register an inline widget');
+assert.equal(allFrame.foxy[0].all,true);assert.equal(allFrame.foxy[0].height,12);
+allFox.free();

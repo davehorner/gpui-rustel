@@ -22,6 +22,10 @@ pub struct Visual {
     pub lane: String,
     pub expanded: Vec<String>,
     pub mode: usize,
+    pub foxy_slot: Option<u8>,
+    pub foxy_active: bool,
+    pub embedded: bool,
+    pub embedded_visible: bool,
     pub rests: bool,
     pub orbit: bool,
     pub camera_reframe: u64,
@@ -43,6 +47,10 @@ impl Default for Visual {
             lane: String::new(),
             expanded: vec![],
             mode: 0,
+            foxy_slot: None,
+            foxy_active: false,
+            embedded: false,
+            embedded_visible: true,
             rests: false,
             orbit: false,
             camera_reframe: 0,
@@ -115,10 +123,35 @@ impl Frame {
     pub fn projected(&self) -> Option<(Snapshot, f64)> {
         let s = self.snapshot.as_ref()?;
         let cycle = s.value.display_cycle(s.at.elapsed().as_secs_f64());
+        let mut snapshot = std::borrow::Cow::Borrowed(s.value.as_ref());
+        if let Some(slot) = self.visual.foxy_slot {
+            let snapshot = snapshot.to_mut();
+            snapshot
+                .events
+                .retain(|e| e.ui_visuals & (1_u64 << slot) != 0);
+            let lanes: std::collections::HashSet<_> =
+                snapshot.events.iter().map(|e| e.lane.clone()).collect();
+            snapshot.lanes.retain(|l| lanes.contains(&l.id));
+        }
+        let expanded = if self.visual.foxy_active {
+            snapshot
+                .lanes
+                .iter()
+                .filter(|l| l.parts.iter().filter(|p| !p.helper).count() > 1)
+                .map(|l| l.id.clone())
+                .collect()
+        } else {
+            self.visual.expanded.clone()
+        };
         Some((
-            s.value
-                .with_rests(self.visual.rests)
-                .visual_lanes(&self.visual.expanded, &self.visual.lane),
+            snapshot.with_rests(self.visual.rests).visual_lanes(
+                &expanded,
+                if self.visual.foxy_active {
+                    ""
+                } else {
+                    &self.visual.lane
+                },
+            ),
             cycle,
         ))
     }
@@ -175,6 +208,56 @@ pub fn active_ranges(s: &Snapshot, cycle: f64, lane: &str) -> Vec<std::ops::Rang
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_foxy_filters_tags_without_changing_the_running_score() {
+        let mut tagged = test_event();
+        tagged.lane = "#0".into();
+        tagged.ui_visuals = 1_u64 << 63;
+        let mut sibling = test_event();
+        sibling.lane = "#1".into();
+        let source = Arc::new(Snapshot {
+            lanes: vec![
+                music_link::Lane {
+                    id: "#0".into(),
+                    ..Default::default()
+                },
+                music_link::Lane {
+                    id: "#1".into(),
+                    ..Default::default()
+                },
+            ],
+            events: vec![tagged.clone(), sibling],
+            ..Default::default()
+        });
+        let mut frame = Frame {
+            capabilities: None,
+            audio: None,
+            snapshot: Some(Received {
+                value: source.clone(),
+                at: web_time::Instant::now(),
+            }),
+            visual: Visual {
+                foxy_slot: Some(63),
+                foxy_active: true,
+                lane: "#1".into(),
+                ..Default::default()
+            },
+        };
+        let (filtered, _) = frame.projected().unwrap();
+        assert_eq!(filtered.events.len(), 1);
+        assert_eq!(filtered.lanes[0].id, "#0");
+        assert_eq!(source.events.len(), 2);
+        frame.visual.foxy_slot = None;
+        assert_eq!(frame.projected().unwrap().0.events.len(), 2);
+        let mut browser = serde_json::to_value(&tagged).unwrap();
+        browser["ui_visuals"] = serde_json::json!((1_u64 << 63).to_string());
+        assert_eq!(
+            serde_json::from_value::<music_link::Event>(browser)
+                .unwrap()
+                .ui_visuals,
+            1_u64 << 63
+        );
+    }
     #[test]
     fn new_scores_expand_named_parts_but_keep_manual_collapses() {
         let mut s = Snapshot {

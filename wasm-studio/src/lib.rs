@@ -5,6 +5,9 @@ use ratatui::style::Color;
 use rustel_transpiler::on_caller_stack;
 use serde_json::json;
 use wasm_bindgen::prelude::*;
+#[allow(dead_code)]
+#[path = "../../src/source_identity.rs"]
+mod source_identity;
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = console, js_name = error)]
@@ -19,6 +22,7 @@ fn modifiers(bits: u8) -> KeyModifiers {
 #[wasm_bindgen]
 pub struct Studio {
     inner: rustel_studio::app::BrowserStudio,
+    bindings: Vec<source_identity::Binding>,
 }
 #[wasm_bindgen]
 impl Studio {
@@ -26,6 +30,7 @@ impl Studio {
     pub fn new(source: &str, state: Option<String>) -> Result<Studio, JsValue> {
         std::panic::set_hook(Box::new(|info| log_panic(&info.to_string())));
         Ok(Self {
+            bindings: source_identity::bindings(source),
             inner: on_caller_stack(|| {
                 rustel_studio::app::BrowserStudio::new(source, state.as_deref())
             })
@@ -122,6 +127,9 @@ impl Studio {
         generation: f64,
         message: Option<String>,
     ) {
+        if message.is_none() {
+            self.bindings = source_identity::bindings(source);
+        }
         on_caller_stack(|| {
             self.inner.evaluated(
                 request as u64,
@@ -142,8 +150,30 @@ impl Studio {
         time: f64,
         cps: f64,
     ) -> Result<(), JsValue> {
+        let mut events: Vec<serde_json::Value> =
+            serde_json::from_str(json).map_err(|e| error(e.to_string()))?;
+        for event in &mut events {
+            let context: Vec<(usize, usize)> =
+                serde_json::from_value(event["context"].clone()).unwrap_or_default();
+            let binding = context.iter().find_map(|(from, to)| {
+                self.bindings
+                    .iter()
+                    .filter(|b| from < to && *from >= b.definition_from && *to <= b.definition_to)
+                    .min_by_key(|b| b.definition_to - b.definition_from)
+            });
+            if let Some(binding) = binding {
+                let [r, g, b] = binding.color;
+                event["color"] = json!(format!("#{r:02x}{g:02x}{b:02x}"));
+                event["label"] = json!(binding.name);
+            }
+        }
         self.inner
-            .events(json, generation as u64, time, cps)
+            .events(
+                &serde_json::to_string(&events).map_err(|e| error(e.to_string()))?,
+                generation as u64,
+                time,
+                cps,
+            )
             .map_err(error)
     }
     pub fn audio(
@@ -169,7 +199,7 @@ impl Studio {
             .iter()
             .map(|c| json!([c.symbol(), color(c.fg), color(c.bg), c.modifier.bits()]))
             .collect::<Vec<_>>();
-        Ok(json!({"width":buffer.area.width,"height":buffer.area.height,"cells":cells,"cursor":self.inner.cursor(),"zen":self.inner.zen()}).to_string())
+        Ok(json!({"width":buffer.area.width,"height":buffer.area.height,"cells":cells,"cursor":self.inner.cursor(),"zen":self.inner.zen(),"foxy":self.inner.host_foxy_regions()}).to_string())
     }
 }
 fn color(value: Color) -> String {

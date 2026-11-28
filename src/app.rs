@@ -709,13 +709,28 @@ impl MusicApp {
 }
 impl Render for MusicApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.settings.lock().unwrap().embedded {
+            let visible = self.settings.lock().unwrap().embedded_visible;
+            self.viewport
+                .update(cx, |viewport, cx| viewport.set_visible(visible, cx));
+            return div()
+                .size_full()
+                .child(self.viewport.clone())
+                .into_any_element();
+        }
         let narrow = f32::from(window.viewport_size().width) < 760.;
         let frame = Frame::read(&self.bridge.shared, &self.settings);
         #[cfg(not(target_arch = "wasm32"))]
         if self.studio_open {
-            self.viewport
-                .update(cx, |viewport, cx| viewport.set_visible(false, cx));
             let studio = self.studio.as_ref().unwrap().clone();
+            let foxy = studio.read(cx).foxy_surface();
+            self.settings.lock().unwrap().foxy_active = foxy.is_some();
+            self.settings.lock().unwrap().foxy_slot = foxy
+                .as_ref()
+                .and_then(|(r, _)| if r.all { None } else { r.slot });
+            self.viewport
+                .update(cx, |viewport, cx| viewport.set_visible(foxy.is_some(), cx));
+            let viewport = self.viewport.clone();
             let status = studio.read(cx).status.clone();
             let play = studio.clone();
             let stop = studio.clone();
@@ -733,6 +748,8 @@ impl Render for MusicApp {
                         .child(Button::new("studio-back").label("Back to stage").on_click(
                             cx.listener(|app, _, window, cx| {
                                 app.studio_open = false;
+                                app.settings.lock().unwrap().foxy_slot = None;
+                                app.settings.lock().unwrap().foxy_active = false;
                                 window.focus(&app.viewport.focus_handle(cx), cx);
                                 cx.notify();
                             }),
@@ -752,7 +769,26 @@ impl Render for MusicApp {
                         ))
                         .child("Studio · native GPUI · shared runtime"),
                 )
-                .child(div().flex_1().min_h_0().child(studio))
+                .child(
+                    div()
+                        .relative()
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_hidden()
+                        .child(studio)
+                        .when_some(foxy, |view, (region, cw)| {
+                            view.child(
+                                div()
+                                    .absolute()
+                                    .left(px(f32::from(region.x) * cw))
+                                    .top(px(f32::from(region.y) * 18.))
+                                    .w(px(f32::from(region.width) * cw))
+                                    .h(px(f32::from(region.height) * 18.))
+                                    .overflow_hidden()
+                                    .child(viewport),
+                            )
+                        }),
+                )
                 .child(div().p_2().text_xs().child(status))
                 .into_any_element();
         }

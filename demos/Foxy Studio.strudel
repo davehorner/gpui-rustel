@@ -1,0 +1,10 @@
+// Each pattern gets its own light 2D fox track.
+setcps(0.5)
+const bass = note("c2 ~ g2 ~").s("sine").gain(0.16)
+const keys = note("[c4,e4,g4] ~ [f4,a4,c5] ~").s("triangle").gain(0.08)
+$: bass._foxy()
+$: keys._foxy()
+
+// One shared real Nightshade stage, showing every part.
+// Use _all_foxy() without options for an entirely 2D score.
+_all_foxy({mode: "3d"})

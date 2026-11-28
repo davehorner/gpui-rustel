@@ -1,6 +1,6 @@
-# Clean upstream Rustel adapter
+# Upstream Rustel adapter
 
-This optional backend integrates upstream issue [#318](https://github.com/tzfm/rustel/issues/318) and merged [PR #323](https://github.com/tzfm/rustel/pull/323). It runs an unmodified, pinned upstream Rustel CLI and translates its NDJSON UI protocol into the existing music-link messages. It leaves the older patched `rustel` submodule and its vendor overlay available for existing workflows.
+This optional backend integrates upstream issue [#318](https://github.com/tzfm/rustel/issues/318) and merged [PR #323](https://github.com/tzfm/rustel/pull/323). It runs the pinned Rustel CLI and translates its NDJSON UI protocol into the existing music-link messages. The build helper now uses the same maintained checkout as browser audio and Studio, including the `_foxy()`/`_all_foxy()` visual declarations. Ordinary upstream executables remain compatible with scores using upstream methods.
 
 ## Build and use
 
@@ -9,12 +9,12 @@ From the gpui-nightshade root (adapter is staged here pending transfer to bespok
 ```powershell
 python upstream-adapter/build_runtime.py
 # Start music-hub separately for the optional hub bridge:
-cargo run --manifest-path upstream-adapter/Cargo.toml --features hub --locked -- --rustel=upstream-adapter/target/upstream-rustel/target/release/rustel.exe --score=../bespoke_rustel/music-link/demo.strudel
+cargo run --manifest-path upstream-adapter/Cargo.toml --features hub --locked -- --rustel=.build-sources/rustel-browser-engine/target/release/rustel.exe --score=../bespoke_rustel/music-link/demo.strudel
 ```
 
 Add `--silent` to validate without opening an audio device. The runtime watches the selected score. Hosted editor execution validates a private sibling `.js` copy and restarts playback from that copy; it does not rewrite the original. Native sample loading retains upstream behavior; this minimal build does not include every upstream default feature.
 
-Pinned upstream: `79fd1fb3fd64c0a637f475ad24de675fd5b2ac59` (0.1.9). Build features are `device-audio,midi`: `device-audio` alone currently fails with unresolved `midi_clock` references. Upstream remains AGPL-3.0-or-later; its source/license stay in the clean checkout. No binary is checked in.
+Pinned upstream: `79fd1fb3fd64c0a637f475ad24de675fd5b2ac59` (0.1.9). Build features are `device-audio,midi`: `device-audio` alone currently fails with unresolved `midi_clock` references. Upstream remains AGPL-3.0-or-later; its source/license stay in the maintained checkout. Changes are captured in `wasm-audio/patches/browser-portability.patch`. No binary is checked in.
 
 For the native GPUI app, use its `--rustel=EXE --score=FILE` mode. It uses this crate directly, owns the child runtime, and needs no hub, browser or separately launched Rustel. This is subprocess hosting; the engine is not yet linked into GPUI's process.
 

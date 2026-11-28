@@ -29,7 +29,7 @@ export class LocalAudioHost {
       const hash=Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');if(hash!==entry.sha256)throw Error(`Demo source changed: ${entry.name}`);
       this.demos[entry.name]={format:'javascript',source:new TextDecoder().decode(bytes),url,overrides:{}};
     }
-    this.demo=new URLSearchParams(location.search).has('mini')?Object.keys(this.demos)[0]:'Bachata.strudel';
+    this.demo=new URLSearchParams(location.search).has('mini')?Object.keys(this.demos)[0]:'Bachata bruma de canela.strudel';
     this.timer=setInterval(()=>this.publish(),66);
     this.publish();
     await this.load(structuredClone(this.demos[this.demo]),this.demo);

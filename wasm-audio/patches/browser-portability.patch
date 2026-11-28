@@ -281,6 +281,29 @@ index d709af5..d672add 100644
      let shadow = if fits {
          shadow_of(&ctx, &state, shadow, transform.as_ref(), scope, logs)?
      } else {
+diff --git a/crates/jsruntime/src/install/repl/visuals.rs b/crates/jsruntime/src/install/repl/visuals.rs
+index f8a1b22..4e0c545 100644
+--- a/crates/jsruntime/src/install/repl/visuals.rs
++++ b/crates/jsruntime/src/install/repl/visuals.rs
+@@ -227,6 +227,7 @@ pub(super) fn install<'js>(
+         "_pitchwheel",
+         "_spectrum",
+         "_video",
++        "_foxy",
+         "scope",
+         "tscope",
+         "pianoroll",
+@@ -272,6 +273,10 @@ pub(super) fn install<'js>(
+                 .map_err(|error| error.to_string())?;
+         }
+     }
++    // A page-wide painter registers layout only. It must never stack or
++    // transform the score's emitting patterns.
++    globals.set("_all_foxy", Function::new(ctx.clone(), |_args: Rest<rquickjs::Value<'js>>| ())
++        .map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
+     let markcss = Function::new(
+         ctx.clone(),
+         |this: This<rquickjs::Value<'js>>, _args: Rest<rquickjs::Value<'js>>| this.0,
 diff --git a/crates/jsruntime/src/runtime/api.rs b/crates/jsruntime/src/runtime/api.rs
 index e176110..9904879 100644
 --- a/crates/jsruntime/src/runtime/api.rs
@@ -1934,7 +1957,7 @@ index e79045f..fda0428 100644
          .unwrap_or(0)
  }
 diff --git a/crates/runtime/src/ui_events.rs b/crates/runtime/src/ui_events.rs
-index 5ea9eec..d2236b9 100644
+index 5ea9eec..2e5b90b 100644
 --- a/crates/runtime/src/ui_events.rs
 +++ b/crates/runtime/src/ui_events.rs
 @@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1946,7 +1969,16 @@ index 5ea9eec..d2236b9 100644
  
  use crate::ui_analysis::{
      UI_SCOPE_SAMPLES, UI_SPECTRUM_BINS, UiAudioAnalysisFrame, UiAudioAnalysisSet,
-@@ -2170,16 +2170,16 @@ impl UiEventSink {
+@@ -338,6 +338,8 @@ impl UiVisual {
+                     | "pitchwheel"
+                     | "spectrum"
+                     | "video"
++                    | "foxy"
++                    | "all_foxy"
+                     | "markcss"
+             )
+         {
+@@ -2170,16 +2172,16 @@ impl UiEventSink {
      /// pipe never blocks shutdown. Returns true when the writer ends within
      /// `grace` without a panic. A writer that still runs at the deadline is
      /// left detached to end on its own.
@@ -1967,7 +1999,7 @@ index 5ea9eec..d2236b9 100644
          }
          match self.worker.take() {
              Some(worker) => worker.join().is_ok(),
-@@ -2382,7 +2382,7 @@ mod tests {
+@@ -2382,7 +2384,7 @@ mod tests {
      use super::*;
      use rustel_fraction::Fraction;
      use std::sync::{Condvar, Mutex};
@@ -1976,7 +2008,7 @@ index 5ea9eec..d2236b9 100644
  
      #[derive(Clone, Default)]
      struct SharedWriter(Arc<Mutex<Vec<u8>>>);
-@@ -3756,13 +3756,13 @@ unknown(slider(440, 20, 20000));"#;
+@@ -3756,13 +3758,13 @@ unknown(slider(440, 20, 20000));"#;
              .recv_timeout(Duration::from_secs(1))
              .expect("writer did not attempt output");
  
@@ -1992,7 +2024,7 @@ index 5ea9eec..d2236b9 100644
                  "audio slot stayed connected after writer failure"
              );
              std::thread::yield_now();
-@@ -3777,7 +3777,7 @@ unknown(slider(440, 20, 20000));"#;
+@@ -3777,7 +3779,7 @@ unknown(slider(440, 20, 20000));"#;
          assert_eq!(sink.try_send(envelope()), UiEventSendStatus::Queued);
  
          let grace = Duration::from_secs(5);
@@ -2134,7 +2166,7 @@ index 85d6c27..34eeba3 100644
 +[target.'cfg(target_arch = "wasm32")'.dependencies]
 +web-sys = { version = "0.3", features = ["Window", "Storage"] }
 diff --git a/crates/studio/src/app.rs b/crates/studio/src/app.rs
-index 8bca756..bf376cf 100644
+index 8bca756..44ef188 100644
 --- a/crates/studio/src/app.rs
 +++ b/crates/studio/src/app.rs
 @@ -71,7 +71,7 @@ use std::path::PathBuf;
@@ -2233,7 +2265,7 @@ index 8bca756..bf376cf 100644
                  }
              }
  
-@@ -3645,3 +3651,345 @@ mod tests {
+@@ -3645,3 +3651,349 @@ mod tests {
          }
      }
  }
@@ -2392,8 +2424,8 @@ index 8bca756..bf376cf 100644
 +                    target_time: begin / cps.max(0.0001),
 +                    duration_seconds: duration / cps.max(0.0001),
 +                    value: v["sound"].as_str().map(str::to_owned),
-+                    color: None,
-+                    label: None,
++                    color: v["color"].as_str().map(str::to_owned),
++                    label: v["label"].as_str().map(str::to_owned),
 +                    active_label: None,
 +                    scale: None,
 +                    frequency_hz: v["pitch"]
@@ -2544,7 +2576,11 @@ index 8bca756..bf376cf 100644
 +        self.app.visual.install_audio(UiAudioMetadata { sequence: value.sequence, generation: value.generation, device_time: value.device_time, stream_id: value.stream_id, epoch: value.epoch, end_frame: value.end_frame, sample_rate: value.sample_rate }, UiAudioAnalysisSet {master, visuals, sides: Vec::new()});
 +        Ok(())
 +    }
++    pub fn host_foxy_regions(&self) -> Vec<crate::visuals::FoxyRegion> {
++        self.app.visual.foxy_regions.borrow().clone()
++    }
 +    pub fn render(&mut self, width: u16, height: u16) -> Result<ratatui::buffer::Buffer, String> {
++        self.app.visual.foxy_regions.borrow_mut().clear();
 +        let now = Instant::now();
 +        self.app.drain_engine();
 +        self.app.drain_save();
@@ -2593,10 +2629,25 @@ index 33e4c7d..7d50815 100644
  use super::{App, StudioSnapshot};
  use rustel_runtime::ProducerLoadSnapshot;
 diff --git a/crates/studio/src/app/evaluation.rs b/crates/studio/src/app/evaluation.rs
-index c11f271..33d970c 100644
+index c11f271..85c8095 100644
 --- a/crates/studio/src/app/evaluation.rs
 +++ b/crates/studio/src/app/evaluation.rs
-@@ -1654,8 +1654,8 @@ mod tests {
+@@ -1489,8 +1489,14 @@ pub(super) fn virtual_rows_for(
+                 // A small window on the clip: enough rows for its shape,
+                 // not so many that a lane of videos eats the score.
+                 "video" => 8,
++                "foxy" => 12,
++                "all_foxy" => 32,
+                 other => return Some(Err(format!("unknown inline visual kind {other:?}"))),
+             };
++            let height = if matches!(visual.kind.as_str(), "foxy" | "all_foxy") {
++                crate::theme::VisualOptions::parse(&visual.options).number("height")
++                    .filter(|n|n.is_finite()).map(|n|n.clamp(4.,96.) as u16).unwrap_or(height)
++            } else { height };
+             if !alive(visual) {
+                 return None;
+             }
+@@ -1654,8 +1660,8 @@ mod tests {
                  "the apply waits inside the pause, it is not lost"
              );
              let elapsed =
@@ -2607,7 +2658,7 @@ index c11f271..33d970c 100644
                  .checked_sub(elapsed)
                  .expect("backdate the edit");
              // An idle worker still says stopped every 100 ms, and the drain
-@@ -1680,7 +1680,7 @@ mod tests {
+@@ -1680,7 +1686,7 @@ mod tests {
              // A pause that elapsed while stopped buys nothing later.
              app.auto_evaluate_due = true;
              app.snapshot = None;
@@ -2616,7 +2667,7 @@ index c11f271..33d970c 100644
                  .checked_sub(elapsed)
                  .expect("backdate the edit");
              app.pump_turn();
-@@ -1782,8 +1782,8 @@ mod tests {
+@@ -1782,8 +1788,8 @@ mod tests {
          /// stopped, and a pause spent that way has to be owed again.
          fn past_the_pause(app: &mut App, done: impl Fn(&App) -> bool) {
              let elapsed =
@@ -2627,7 +2678,7 @@ index c11f271..33d970c 100644
                  .checked_sub(elapsed)
                  .expect("backdate the edit");
              for _ in 0..200 {
-@@ -1823,14 +1823,14 @@ mod tests {
+@@ -1823,14 +1829,14 @@ mod tests {
                  "no update left for a label half typed"
              );
              let file = directory.path().join("first.strudel");
@@ -4498,6 +4549,26 @@ index 92cea12..4aaa94d 100644
                      focused: pane.timeline_focus,
                  },
                  strip,
+diff --git a/crates/studio/src/view/source.rs b/crates/studio/src/view/source.rs
+index 84a99cb..a9d481b 100644
+--- a/crates/studio/src/view/source.rs
++++ b/crates/studio/src/view/source.rs
+@@ -555,6 +555,15 @@ fn render_clipped_visual(
+         Style::default().bg(background).fg(theme.foreground),
+     );
+     let parsed = VisualOptions::parse(options);
++    // Host surfaces belong to the visible editor rectangle, not the scratch
++    // layer at (0,0) used to keep 2D geometry stable while scrolling.
++    if matches!(kind, "foxy" | "all_foxy") && parsed.text("mode") == Some("3d") && settings::animation() {
++        visual.foxy_regions.borrow_mut().push(crate::visuals::FoxyRegion {
++            x: visible_area.x, y: visible_area.y,
++            width: visible_area.width, height: visible_area.height,
++            slot, all: kind == "all_foxy",
++        });
++    }
+     if !settings::animation() {
+         layer.set_string(
+             full_area.x,
 diff --git a/crates/studio/src/vim_config.rs b/crates/studio/src/vim_config.rs
 index 07f4e40..332b359 100644
 --- a/crates/studio/src/vim_config.rs
@@ -4513,7 +4584,7 @@ index 07f4e40..332b359 100644
  use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
  
 diff --git a/crates/studio/src/visuals.rs b/crates/studio/src/visuals.rs
-index 29d5906..4cc4322 100644
+index 29d5906..1e10cf4 100644
 --- a/crates/studio/src/visuals.rs
 +++ b/crates/studio/src/visuals.rs
 @@ -11,7 +11,7 @@
@@ -4525,7 +4596,140 @@ index 29d5906..4cc4322 100644
  
  use ratatui::buffer::Buffer;
  use ratatui::layout::Rect;
-@@ -6102,7 +6102,7 @@ mod tests {
+@@ -48,9 +48,17 @@ impl ClockAnchor {
+     }
+ }
+ 
++#[derive(Clone, Debug, serde::Serialize)]
++pub struct FoxyRegion {
++    pub x: u16, pub y: u16, pub width: u16, pub height: u16,
++    pub slot: Option<u8>, pub all: bool,
++}
++
+ /// Revision-gated visual state owned entirely by the UI thread.
+ #[derive(Debug, Default)]
+ pub struct VisualState {
++    /// Visible cell rectangles for hosts embedding the shared Nightshade stage.
++    pub foxy_regions: std::cell::RefCell<Vec<FoxyRegion>>,
+     layout: Option<UiLayout>,
+     /// The text of the score of `layout`, when the studio knows it: see
+     /// [`Self::install_layout_of`].
+@@ -1649,6 +1657,7 @@ pub fn render(request: VisualRequest<'_>, area: Rect, buffer: &mut Buffer) {
+         "pianoroll" | "punchcard" => {
+             PianoRoll::new(&request, RollPreset::PianoRoll).render(area, buffer)
+         }
++        "foxy" | "all_foxy" => render_foxy(&request, area, buffer),
+         "wordfall" => PianoRoll::new(&request, RollPreset::Wordfall).render(area, buffer),
+         "spiral" => Spiral::new(&request).render(area, buffer),
+         "pitchwheel" => PitchWheel::new(&request).render(area, buffer),
+@@ -1665,6 +1674,106 @@ pub fn render(request: VisualRequest<'_>, area: Rect, buffer: &mut Buffer) {
+     }
+ }
+ 
++/// A fox runs along the current bar, then jumps from that bar to the next.
++/// Chords share one landing on their highest note. All motion uses score time.
++#[derive(Clone, Copy, Debug)]
++pub struct FoxyMotion {
++    pub time: f64, pub pitch: f64, pub lift: f64,
++    pub running: bool, pub stride: usize,
++}
++pub fn foxy_motion(notes: &[(f64,f64,f64)], cycle: f64) -> FoxyMotion {
++    let previous_time = notes.iter().filter(|n|n.0<=cycle).map(|n|n.0).max_by(f64::total_cmp);
++    let next_time = notes.iter().filter(|n|n.0>cycle).map(|n|n.0).min_by(f64::total_cmp);
++    let chord = |time: f64| notes.iter().filter(|n|(n.0-time).abs()<0.000001)
++        .fold((time,time,f64::NEG_INFINITY), |a,n|(time,a.1.max(n.1),a.2.max(n.2)));
++    let previous = previous_time.map(chord);
++    let next = next_time.map(chord);
++    let mut motion = FoxyMotion {time:cycle,pitch:previous.or(next).map_or(48.,|n|n.2),lift:0.,running:false,stride:((cycle.max(0.)*16.).floor() as usize)%4};
++    if let Some(from) = previous {
++        motion.running = cycle < from.1;
++        motion.time = cycle.min(from.1);
++        if let Some(to) = next {
++            // Adjacent notes get a short takeoff at the end of the old bar;
++            // rests become a flight across the gap instead of a walk on air.
++            let takeoff = from.1.min(to.0 - ((from.1-from.0)*0.2).clamp(0.04,0.18));
++            if cycle >= takeoff && to.0 > takeoff {
++                let t = ((cycle-takeoff)/(to.0-takeoff)).clamp(0.,1.);
++                motion.time = cycle;
++                motion.pitch = from.2+(to.2-from.2)*t;
++                motion.lift = (t*std::f64::consts::PI).sin()*7.;
++                motion.running = false;
++            }
++        }
++    } else if let Some(to) = next {
++        motion.time = to.0;
++    }
++    motion
++}
++
++/// Lightweight stage: one horizontal track per part, thin note bars, and a
++/// fixed-facing pixel fox whose feet stay above the highest sounding note.
++fn render_foxy(request: &VisualRequest<'_>, area: Rect, buffer: &mut Buffer) {
++    let all = request.kind == "all_foxy";
++    let Some((seconds, cycle, cps)) = request.state.clock_at(Instant::now()) else {
++        note(request, buffer, area, "Foxy · play the score to animate"); return;
++    };
++    let cycles = request.options.number("cycles").unwrap_or(4.).clamp(0.25, 32.);
++    let begin = (cycle / cycles).floor() * cycles;
++    let events = placed_events(request.state, if all { None } else { request.slot }, begin - cycles, begin + cycles * 2., seconds, cps);
++    let mut lanes = BTreeMap::<(u32, String), Vec<&PlacedEvent<'_>>>::new();
++    for event in &events {
++        lanes.entry((event.event.lane.unwrap_or(0), event.event.label.clone().unwrap_or_default())).or_default().push(event);
++    }
++    if lanes.is_empty() { note(request, buffer, area, "Foxy · waiting for this pattern's notes"); return; }
++    // Reserve enough vertical space for a recognisable fox instead of crushing
++    // every instrument into one wall. Extra parts remain available by scrolling.
++    let total = lanes.len();
++    let visible = lanes.len().min((usize::from(area.height) / 4).max(1));
++    let track_height = usize::from(area.height) / visible;
++    let palette = [0x1ff2d1,0xff596b,0xa36bff,0xffba33,0x33a6ff,0xff59cc,0x9eff47,0xff8a38];
++    for (index, ((lane, label), notes)) in lanes.into_iter().take(visible).enumerate() {
++        let track = Rect::new(area.x, area.y + (index * track_height) as u16, area.width, track_height as u16);
++        let default = palette[lane as usize % palette.len()];
++        let color = notes.iter().find_map(|e| request.event_color(e.event)).unwrap_or(Color::Rgb((default >> 16) as u8,(default >> 8) as u8,default as u8));
++        let mut canvas = Canvas::with_raster(track, Raster::Braille);
++        let width = canvas.width(); let height = canvas.height();
++        let x_at = |time: f64| ((time - begin) / cycles * (width.saturating_sub(1)) as f64).round().clamp(0.,width.saturating_sub(1) as f64) as usize;
++        let pitch = |e: &UiScheduledEvent| e.frequency_hz.map(|f| 69. + 12. * (f64::from(f) / 440.).log2()).unwrap_or(48.);
++        let y_at = |p: f64| (height.saturating_sub(2) as f64 - (p - 36.).clamp(0.,60.) / 60. * height.saturating_sub(20) as f64).round() as usize;
++        for note in &notes {
++            if note.end < begin || note.begin > begin+cycles { continue; }
++            let y = y_at(pitch(note.event));
++            for x in x_at(note.begin)..=x_at(note.end) { canvas.set(x,y,color); }
++        }
++        let steps: Vec<_> = notes.iter().map(|n|(n.begin,n.end,pitch(n.event))).collect();
++        let motion = foxy_motion(&steps,cycle);
++        let feet = y_at(motion.pitch).saturating_sub(1 + motion.lift.round() as usize);
++        let scale = if height >= 24 { 2 } else { 1 };
++        let fox = ["       # # ","      #####","##   ######"," ### ##### ","  #######  "];
++        let x = x_at(motion.time).saturating_sub(5*scale);
++        let top = feet.saturating_sub(6*scale-1);
++        for (dy,row) in fox.iter().enumerate() {
++            for (dx,pixel) in row.bytes().enumerate() {
++                if pixel == b'#' {
++                    for sy in 0..scale { for sx in 0..scale {
++                        canvas.set(x+dx*scale+sx,top+dy*scale+sy,color);
++                    }}
++                }
++            }
++        }
++        let legs = if motion.running { [[3,8],[4,7],[5,6],[4,7]][motion.stride] } else { [4,6] };
++        for leg in legs { for sy in 0..scale { for sx in 0..scale {
++            canvas.set(x+leg*scale+sx,feet.saturating_sub(scale-1)+sy,color);
++        }}}
++        canvas.paint(buffer,request.background);
++        let caption = if label.is_empty() { format!("#{}",lane) } else { label };
++        buffer.set_stringn(track.x,track.y,caption,usize::from(track.width),Style::default().fg(color));
++    }
++    if total > visible {
++        buffer.set_stringn(area.x,area.bottom()-1,format!("{visible}/{total} parts · increase height to see more"),usize::from(area.width),Style::default().fg(request.theme.muted));
++    }
++}
++
+ /// Say in the painter's own band why it drew nothing. A stage painter
+ /// writes nothing: its note would sit behind the score.
+ fn note(request: &VisualRequest<'_>, buffer: &mut Buffer, area: Rect, message: &str) {
+@@ -6102,7 +6211,7 @@ mod tests {
          let frozen = visual.frozen_at;
          let held = visual.current_clock().unwrap();
          let (_, draining_later, _) = visual
@@ -4534,7 +4738,7 @@ index 29d5906..4cc4322 100644
              .unwrap();
          assert!(
              draining_later > held.1,
-@@ -6384,7 +6384,7 @@ mod tests {
+@@ -6384,7 +6493,7 @@ mod tests {
          let first_wall = Instant::now();
          assert!(visual.install_snapshot_clock_at(&first_snapshot, first_wall));
          assert_eq!(
@@ -4543,7 +4747,7 @@ index 29d5906..4cc4322 100644
              Some((12.0, 5.0, 0.5))
          );
  
-@@ -6432,10 +6432,10 @@ mod tests {
+@@ -6432,10 +6541,10 @@ mod tests {
              score_engine: None,
              audio_memory: None,
          };
@@ -4765,7 +4969,7 @@ index bc01d71..b3d6b1e 100644
  oxc_ast = "0.144.0"
  oxc_ast_visit = "0.144.0"
 diff --git a/crates/transpiler/src/lib.rs b/crates/transpiler/src/lib.rs
-index ccbf7d9..21e31b6 100644
+index ccbf7d9..3be7c2c 100644
 --- a/crates/transpiler/src/lib.rs
 +++ b/crates/transpiler/src/lib.rs
 @@ -383,7 +383,9 @@ impl OrdinaryStringLiteralRanges {
@@ -4796,7 +5000,29 @@ index ccbf7d9..21e31b6 100644
          // Plugin option keys name parameters. A preset value names a file.
          if matches!(name, "vst" | "vsti")
              && let Some(Argument::ObjectExpression(options)) = arguments.get(1)
-@@ -5222,7 +5234,7 @@ mod tests {
+@@ -1307,6 +1319,8 @@ pub const VISUAL_WIDGET_METHODS: &[&str] = &[
+     "_spectrum",
+     "video",
+     "_video",
++    "_foxy",
++    "_all_foxy",
+     "markcss",
+ ];
+ 
+@@ -3744,8 +3758,10 @@ fn collect_widgets(
+                 label: None,
+             };
+             Some((record, CallSite::Slider { name_end, open }))
+-        } else if member && options.has_widget_method(name) {
+-            let call_start = find_member_expression_start(bytes, name_start - 1, regexes);
++        } else if (member || name == "_all_foxy") && options.has_widget_method(name) {
++            let call_start = if member {
++                find_member_expression_start(bytes, name_start - 1, regexes)
++            } else { name_start };
+             let record = visual_record(
+                 &widgets,
+                 options,
+@@ -5222,7 +5238,7 @@ mod tests {
  
          // The deepest the size limit admits is refused without being printed.
          let deepest = format!("{}x", "if(1)".repeat(65_530));

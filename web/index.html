@@ -5,7 +5,7 @@
 <script type="module">
 import {startup} from './startup.js?v=__VIEWER_VERSION__';
 const params=new URLSearchParams(location.search);
-if(params.has('studio')) {
+if(params.has('studio')||params.has('sudio')) {
   const {startStudio}=await import('./studio.js?v=__STUDIO_VERSION__');
   await startStudio('__AUDIO_HOST_VERSION__','__STUDIO_VERSION__');
 } else {
@@ -16,7 +16,17 @@ try {
   const params=new URLSearchParams(location.search),local=!params.has('hub')&&params.get('audio')!=='native';
   const firstFrame=new Promise((resolve,reject)=>{const onStage=event=>{if(event.detail?.stage==='ready'||event.detail?.stage==='error'){window.removeEventListener('nightshade-stage',onStage);if(event.detail.stage==='ready')resolve();else reject(Error(event.detail.message));}};window.addEventListener('nightshade-stage',onStage);});
   diag.phase('Starting the GPUI interface');wasm.run(local?'browser':(params.get('hub')||'ws://127.0.0.1:19613'));
-  if(local){await firstFrame;diag.phase('Preparing audio and instruments');const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);const {mountConsole}=await import('./console.js?v=__VIEWER_VERSION__');mountConsole(audio);window.addEventListener('pagehide',()=>audio.close(),{once:true});try{await audio.start();}catch(error){audio.failure(String(error));diag.phase(`Audio unavailable: ${error}`);}}
+  if(params.get('inlinefoxy')==='1') {
+    window.addEventListener('message',event=>{
+      if(event.source!==parent||event.origin!==location.origin)return;
+      const data=event.data;
+      if(data?.type==='rustel-foxy-filter')wasm.foxy_filter(data.slot??undefined);
+      if(data?.type==='rustel-foxy-visible')wasm.foxy_visible(!!data.visible);
+      if(data?.type==='rustel-foxy-message'&&['music/snapshot','music/audio','music/status'].includes(data.topic))wasm.local_message(data.topic,data.json);
+    });
+    parent.postMessage({type:'rustel-foxy-ready'},location.origin);
+    await firstFrame;diag.appReady();
+  } else if(local){await firstFrame;diag.phase('Preparing audio and instruments');const {LocalAudioHost}=await import('./audio-host.js?v=__AUDIO_HOST_VERSION__');const audio=new LocalAudioHost(wasm);const {mountConsole}=await import('./console.js?v=__VIEWER_VERSION__');mountConsole(audio);window.addEventListener('pagehide',()=>audio.close(),{once:true});try{await audio.start();}catch(error){audio.failure(String(error));diag.phase(`Audio unavailable: ${error}`);}}
   if(!local)await firstFrame;diag.appReady();
 }catch(error){diag.fail(error);}
 }

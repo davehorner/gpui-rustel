@@ -72,6 +72,13 @@ impl DesktopStudio {
             status: "Studio · existing Rustel runtime".into(),
         })
     }
+    pub fn foxy_surface(&self) -> Option<(rustel_studio::visuals::FoxyRegion, f32)> {
+        self.ui
+            .host_foxy_regions()
+            .into_iter()
+            .find(|r| r.width >= 10 && r.height >= 4)
+            .map(|r| (r, self.cell_width))
+    }
     pub fn play(&mut self, cx: &mut Context<Self>) {
         let result = self.ui.play();
         self.event_result(result, cx);
@@ -308,7 +315,7 @@ impl DesktopStudio {
             cycle,
             s.cps,
         );
-        let events=s.events.iter().filter(|e|!e.rest).map(|e|serde_json::json!({"id":e.id,"cycle":e.cycle,"duration":e.duration,"pitch":e.pitch,"sound":e.sound,"gain":e.gain,"lane":e.lane,"context":e.context,"ui_visuals":e.ui_visuals})).collect::<Vec<_>>();
+        let events=s.events.iter().filter(|e|!e.rest).map(|e|serde_json::json!({"id":e.id,"cycle":e.cycle,"duration":e.duration,"pitch":e.pitch,"sound":e.sound,"gain":e.gain,"lane":e.lane,"context":e.context,"ui_visuals":e.ui_visuals,"label":e.part,"color":format!("#{:06x}",crate::model::event_color(e,0))})).collect::<Vec<_>>();
         if let Err(error) = self.ui.events(
             &serde_json::to_string(&events).unwrap(),
             s.generation,
@@ -859,6 +866,29 @@ fn paint(
 #[cfg(test)]
 mod tests {
     use super::{StudioUi, byte_offset};
+    #[test]
+    fn foxes_run_on_bars_and_jump_to_the_next_highest_chord_note() {
+        use rustel_studio::visuals::foxy_motion;
+        let notes = [(0., 0.4, 48.), (0.8, 1.4, 60.), (0.8, 1.4, 72.)];
+        let start = foxy_motion(&notes, 0.1);
+        let run = foxy_motion(&notes, 0.3);
+        assert!(start.running && run.running);
+        assert!(run.time > start.time);
+        assert_ne!(start.stride, run.stride);
+        assert_eq!(run.pitch, 48.);
+        assert_eq!(run.lift, 0.);
+        let jump = foxy_motion(&notes, 0.6);
+        assert!(!jump.running && jump.lift > 6.);
+        assert!(jump.pitch > 48. && jump.pitch < 72.);
+        let landed = foxy_motion(&notes, 0.8);
+        assert_eq!(landed.pitch, 72.);
+        assert_eq!(landed.lift, 0.);
+        assert!(landed.running);
+        let adjacent = [(0., 1., 60.), (1., 2., 67.)];
+        assert!(foxy_motion(&adjacent, 0.9).lift > 0.);
+        assert_eq!(foxy_motion(&adjacent, 1.).pitch, 67.);
+        assert_eq!(foxy_motion(&adjacent, 1.).lift, 0.);
+    }
     #[test]
     fn remote_draft_edits_are_undoable_and_do_not_queue_playback() {
         std::thread::Builder::new()

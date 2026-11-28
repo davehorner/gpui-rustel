@@ -18,6 +18,7 @@ gpui_kit::assets::icon_assets!(
         Search
     ]
 );
+thread_local! {static FOXY_SETTINGS:RefCell<Option<crate::model::Settings>>=const {RefCell::new(None)};}
 thread_local! {static APPLICATION:RefCell<Option<ApplicationHandle>>=const {RefCell::new(None)};}
 #[wasm_bindgen(
     inline_js = "export function reportRustelPanic(message) { console.error(message); queueMicrotask(() => window.dispatchEvent(new CustomEvent('rustel-panic', {detail: message}))); }"
@@ -35,6 +36,12 @@ pub fn run(hub: Option<String>) -> Result<(), JsValue> {
     let bridge = Bridge::connect(hub.unwrap_or_else(|| "ws://127.0.0.1:9613".into()))
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let settings = Arc::new(Mutex::new(Visual::default()));
+    let embedded = web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .is_some_and(|s| s.contains("inlinefoxy=1"));
+    settings.lock().unwrap().embedded = embedded;
+    settings.lock().unwrap().foxy_active = embedded;
+    FOXY_SETTINGS.with(|s| *s.borrow_mut() = Some(settings.clone()));
     let app = gpui_kit::platform::single_threaded_web().with_assets(WebAssets);
     let handle=app.run_embedded(move |cx| {
         gpui_kit::init(cx);
@@ -57,6 +64,25 @@ pub fn run(hub: Option<String>) -> Result<(), JsValue> {
     });
     APPLICATION.with(|a| *a.borrow_mut() = Some(handle));
     Ok(())
+}
+
+/// Configure the one audio-free stage embedded by Studio.
+#[wasm_bindgen]
+pub fn foxy_filter(slot: Option<u8>) {
+    FOXY_SETTINGS.with(|s| {
+        if let Some(settings) = s.borrow().as_ref() {
+            settings.lock().unwrap().foxy_slot = slot.filter(|s| *s < 64);
+        }
+    });
+}
+
+#[wasm_bindgen]
+pub fn foxy_visible(visible: bool) {
+    FOXY_SETTINGS.with(|s| {
+        if let Some(settings) = s.borrow().as_ref() {
+            settings.lock().unwrap().embedded_visible = visible;
+        }
+    });
 }
 
 /// Receives browser-owned audio messages using the same validated music protocol.

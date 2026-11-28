@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Build a pinned, clean upstream runtime without touching the patched submodule."""
+"""Build the pinned maintained engine used by Studio and browser audio."""
 import argparse
 from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
-REVISION = (ROOT / "upstream-revision.txt").read_text(encoding="utf-8").strip()
 
 def run(*args):
     subprocess.run(args, check=True)
@@ -14,17 +13,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
-    checkout = ROOT / "target" / "upstream-rustel"
-    if not checkout.exists():
-        checkout.parent.mkdir(parents=True, exist_ok=True)
-        run("git", "clone", "--no-checkout", "https://github.com/tzfm/rustel.git", str(checkout))
-    dirty = subprocess.check_output(["git", "-C", str(checkout), "status", "--porcelain"], text=True)
-    if dirty.strip():
-        raise SystemExit(f"Refusing to replace local changes in {checkout}")
-    run("git", "-C", str(checkout), "fetch", "origin", REVISION)
-    run("git", "-C", str(checkout), "checkout", "--detach", REVISION)
+    import sys
+    sys.path.insert(0, str(ROOT.parent / "wasm-audio"))
+    from prepare_engine import prepare
+    checkout = prepare()
     command = ["cargo", "build", "--manifest-path", str(checkout / "Cargo.toml"),
-               "-p", "rustel", "--no-default-features", "--features", "device-audio,midi", "--locked"]
+               "-p", "rustel", "--no-default-features", "--features", "device-audio,midi"]
     if not args.debug:
         command.append("--release")
     run(*command)
