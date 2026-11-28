@@ -250,6 +250,10 @@ impl Stage {
     fn update_fox(&mut self, index: usize, hop: Hop, cycle: f64, color: u32, opacity: f32) {
         self.ensure_fox(index);
         let root = self.foxes[index].root;
+        self.host
+            .world
+            .storage
+            .set(root, Visibility { visible: true });
         let opacity = (opacity.clamp(0., 1.) * 100.).round() as u8;
         if self.foxes[index].tint != (color, opacity) {
             let material = nightshade_render::commands::material_registry::material_registry_insert(
@@ -539,6 +543,17 @@ impl Stage {
             );
             // Reuse skeletons when a filter or a new score changes the visible lanes.
             for (index, lane) in s.lanes.iter().enumerate() {
+                self.ensure_fox(index);
+                let name = lane
+                    .parts
+                    .first()
+                    .filter(|_| lane.parts.len() == 1)
+                    .map(|part| part.name.clone())
+                    .unwrap_or_else(|| lane.display_name());
+                self.host
+                    .world
+                    .storage
+                    .set(self.foxes[index].root, Name(format!("{name} · fox dancer")));
                 if let Some((hop, color)) = fox_hop(&s, cycle, index) {
                     self.update_fox(index, hop, cycle, color, frame.visual.fox_opacity);
                 } else {

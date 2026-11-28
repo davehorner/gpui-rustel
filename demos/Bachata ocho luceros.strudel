@@ -1,0 +1,26 @@
+// BACHATA OCHO LUCEROS — eight parts, eight animated fox dancers
+// 128 BPM, D minor. Each labelled output owns one instrument lane.
+setcpm(128/4)
+samples({
+  lucero_hand: ['east/001_ohkawa_mute.wav','east/002_ohkawa_open.wav'],
+  lucero_hat: ['hh/000_hh3closedhh.wav','hh/007_hh3openhh.wav'],
+  lucero_kick: ['bd/BT0A0A7.wav'],
+  lucero_tick: ['east/000_nipon_wood_block.wav']
+}, 'https://strudel.b-cdn.net/Dirt-Samples/')
+const harmony = chord("<Dm9 Bb^7 Gm9 A7>").dict("ireal")
+const bajo = note("<[d2 ~ a2 d3 ~ a2 c3 a2] [bb1 ~ f2 bb2 ~ f2 a2 f2] [g1 ~ d2 g2 ~ d2 f2 d2] [a1 ~ e2 a2 ~ g2 e2 cs2]>").s("gm_acoustic_bass").gain(.43).release(.12).lpf(900)
+const nylon = harmony.voicing().s("gm_acoustic_guitar_nylon").struct("x ~ x x ~ x ~ [x x]").gain(.24).decay(.15).sustain(.08).release(.06).pan(-.28)
+const acero = harmony.voicing().s("gm_acoustic_guitar_steel").struct("~ x ~ ~ x ~ x ~").gain(.15).decay(.10).sustain(.05).release(.05).hpf(500).pan(.28)
+const requinto = note("<[a4 d5 f5 a5 g5 f5 e5 d5] [f5 d5 c5 bb4 a4 ~ f4 a4] [d5 g5 a5 bb5 a5 g5 f5 d5] [e5 cs5 a4 cs5 e5 g5 e5 ~]>").s("gm_acoustic_guitar_steel").gain(.34).attack(.003).release(.12).room(.19).delay(.12)
+const teclas = note("<[d5 ~ a4 ~] [f5 ~ d5 ~] [bb4 ~ g4 ~] [cs5 ~ a4 ~]>").s("sine").gain(.075).attack(.008).decay(.22).sustain(.12).release(.25).room(.24)
+const guira = s("lucero_hat:0*8").gain(".115 .045 .15 .065 .12 .05 .175 .075").hpf(6100).pan(-.17)
+const tambores = s("lucero_hand:0 ~ lucero_hand:1 lucero_hand:0 ~ lucero_hand:1 [lucero_hand:0 lucero_hand:1] ~").gain(.17).pan(.18)
+const pulso = stack(s("lucero_kick ~ ~ ~ lucero_kick ~ ~ lucero_kick").gain(.15),s("~ ~ lucero_tick ~ ~ ~ lucero_tick ~").gain(.075))
+bass: bajo
+nylon: nylon
+steel: acero
+lead: requinto
+keys: teclas
+scrape: guira
+hand_drums: tambores
+pulse: pulso

@@ -70,7 +70,9 @@ impl Visual {
             self.lane.clear();
         }
         for lane in &s.lanes {
-            if lane.parts.iter().any(|p| !p.helper) && self.seen_parts.insert(lane.id.clone()) {
+            if lane.parts.iter().filter(|p| !p.helper).count() > 1
+                && self.seen_parts.insert(lane.id.clone())
+            {
                 self.expanded.push(lane.id.clone());
             }
         }
@@ -180,11 +182,18 @@ mod tests {
             generation: 1,
             lanes: vec![music_link::Lane {
                 id: "#0".into(),
-                parts: vec![music_link::NamedPart {
-                    name: "bass".into(),
-                    helper: false,
-                    ..Default::default()
-                }],
+                parts: vec![
+                    music_link::NamedPart {
+                        name: "bass".into(),
+                        helper: false,
+                        ..Default::default()
+                    },
+                    music_link::NamedPart {
+                        name: "lead".into(),
+                        helper: false,
+                        ..Default::default()
+                    },
+                ],
                 ..Default::default()
             }],
             ..Default::default()
@@ -198,6 +207,29 @@ mod tests {
         s.generation += 1;
         assert!(v.sync_score(&s));
         assert_eq!(v.expanded, vec!["#0"]);
+    }
+    #[test]
+    fn single_instrument_lanes_do_not_spawn_redundant_character_lanes() {
+        let mut visual = Visual::default();
+        let snapshot = Snapshot {
+            session: "band".into(),
+            generation: 1,
+            lanes: (0..8)
+                .map(|index| music_link::Lane {
+                    id: format!("#{index}"),
+                    parts: vec![music_link::NamedPart {
+                        name: format!("part{index}"),
+                        helper: false,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        visual.sync_score(&snapshot);
+        assert!(visual.expanded.is_empty());
+        assert_eq!(snapshot.visual_lanes(&visual.expanded, "").lanes.len(), 8);
     }
     #[test]
     fn source_highlights_preserve_utf8_and_merge_overlapping_active_contexts() {

@@ -19,7 +19,7 @@ Both targets use the same Nightshade stage: named-part colors, time/cycle and pi
 
 ## Rustel Studio
 
-All `.strudel` scores in `demos/`, including the Bachata, Salsa and spoken-count practice arrangements, ship in the shared WASM catalogue. Desktop GPUI discovers that folder automatically.
+All `.strudel` scores in `demos/`, including the Bachata, Salsa and spoken-count practice arrangements, ship in the shared WASM catalogue. Desktop GPUI discovers that folder automatically. Single-instrument lanes stay unexpanded by default, giving each part one named, color-matched fox dancer; mixed lanes still expand into named parts. `Bachata ocho luceros.strudel` demonstrates eight independently animated instrument characters.
 
 Open the same site with `?studio` to run upstream Rustel Studio entirely in the browser. Its real Ratatui editor and menus render through a WASM cell backend, with browser audio, inline scope/piano roll/spectrum, local drafts and scenes, file import/download, a mobile keyboard button and fullscreen. This route does not require WebGPU or a server. Native plugins, device APIs and filesystem workers still need browser-specific adapters. See [the Studio port, build and tests](wasm-studio/README.md).
 
