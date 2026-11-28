@@ -109,6 +109,11 @@ impl Adapter {
                 return Err("too many lanes".into());
             }
             let same_source = self.revision == revision;
+            // A control acknowledgement can arrive before an older queued layout.
+            // Never roll a live process back to a generation it has already retired.
+            if generation < self.native_generation {
+                return Ok(vec![]);
+            }
             let transpose: BTreeMap<_, _> = self
                 .snapshot
                 .lanes
@@ -213,7 +218,10 @@ impl Adapter {
                     })
                     .unwrap_or_default();
                 let event = Event {
-                    ui_visuals: e["ui_visuals"].as_u64().or_else(|| e["ui_visuals"].as_str().and_then(|v| v.parse().ok())).unwrap_or(0),
+                    ui_visuals: e["ui_visuals"]
+                        .as_u64()
+                        .or_else(|| e["ui_visuals"].as_str().and_then(|v| v.parse().ok()))
+                        .unwrap_or(0),
                     id: integer(e, "onset_id")?,
                     lane,
                     cycle: start,
@@ -254,7 +262,13 @@ impl Adapter {
                 return Ok(vec![]);
             }
             let audio = AudioFrame {
-                visuals: a.get("visuals").filter(|v| !v.is_null()).map(|v| serde_json::from_value(v.clone())).transpose().map_err(|e| e.to_string())?.unwrap_or_default(),
+                visuals: a
+                    .get("visuals")
+                    .filter(|v| !v.is_null())
+                    .map(|v| serde_json::from_value(v.clone()))
+                    .transpose()
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default(),
                 version: 1,
                 session: self.snapshot.session.clone(),
                 generation: self.snapshot.generation,
@@ -284,6 +298,14 @@ impl Adapter {
             };
             let accepted = a["accepted"].as_bool().ok_or("missing accepted")?;
             if accepted {
+                if let Some(generation) = a["generation"]
+                    .as_u64()
+                    .filter(|g| *g > self.native_generation)
+                {
+                    self.native_generation = generation;
+                    self.snapshot.generation = (self.epoch << 32) | generation;
+                    self.snapshot.events.clear();
+                }
                 if let Some(solo) = command.solo {
                     self.snapshot.solo_lane = solo.then_some(command.lane.clone());
                 }
@@ -303,12 +325,12 @@ impl Adapter {
                 }
             }
             return Ok(vec![
+                Output::Snapshot(Box::new(self.snapshot.clone())),
                 Output::Response(Response {
                     request,
                     accepted,
                     message: a["message"].as_str().unwrap_or("").to_owned(),
                 }),
-                Output::Snapshot(Box::new(self.snapshot.clone())),
             ]);
         }
         Ok(vec![])

@@ -87,10 +87,29 @@ fn preserves_individual_visual_audio_analysis() {
         "sample_rate":48000,"device_time":0.1,"scope":vec![0.;512],"spectrum":vec![-100.;512],
         "visuals":[{"slot":3,"scope":vec![0.25;512],"spectrum":vec![-24.;512]}]
     }}).to_string()).unwrap();
-    let Output::Audio(audio) = &output[0] else {panic!("expected audio")};
+    let Output::Audio(audio) = &output[0] else {
+        panic!("expected audio")
+    };
     assert_eq!(audio.visuals[0].slot, 3);
     assert_eq!(audio.visuals[0].scope[0], 0.25);
     assert!(audio.valid());
+}
+#[test]
+fn accepted_controls_publish_the_new_generation_before_acknowledging() {
+    let source = "$: s(\"sine\")";
+    let mut adapter = Adapter::new("test".into(), source.into(), 1);
+    adapter.ingest(&layout(source, 1)).unwrap();
+    let mut c = command("test", adapter.snapshot.generation, "transpose");
+    c.semitones = 2;
+    adapter.encode(c).unwrap();
+    let output=adapter.ingest(&json!({"ui_control_ack":{"version":1,"request":"transpose","accepted":true,"generation":2}}).to_string()).unwrap();
+    assert!(matches!(&output[0],Output::Snapshot(s) if s.generation==(1<<32)|2));
+    assert!(matches!(&output[1],Output::Response(r) if r.accepted));
+    assert!(adapter.ingest(&layout(source, 1)).unwrap().is_empty());
+    let next = adapter
+        .encode(command("test", adapter.snapshot.generation, "next"))
+        .unwrap();
+    assert_eq!(next["ui_control"]["generation"], 2);
 }
 #[test]
 #[ignore = "requires RUSTEL_UPSTREAM_EXE pointing at a device-audio,midi upstream build"]
