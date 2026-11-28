@@ -50,6 +50,10 @@ pub(crate) struct MusicApp {
     #[cfg(not(target_arch = "wasm32"))]
     editor_loaded: bool,
     #[cfg(not(target_arch = "wasm32"))]
+    editor_source: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    editor_draft: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     editor: Entity<TextareaState>,
     source_scroll: ScrollHandle,
     drag: Option<Point<Pixels>>,
@@ -62,10 +66,33 @@ impl MusicApp {
     fn load_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(snapshot) = self.snapshot() {
             let text = snapshot.source.clone();
+            self.editor_source = Some(text.clone());
             self.editor
                 .update(cx, |editor, cx| editor.set_value(text, window, cx));
             self.editor_loaded = true;
         }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sync_editor(&mut self, source: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.editor_source.as_deref() == Some(source) {
+            return;
+        }
+        let current = self.editor.read(cx).value().to_string();
+        if self
+            .editor_source
+            .as_deref()
+            .is_some_and(|previous| current != previous)
+            && current != source
+        {
+            self.editor_draft = Some(current.clone());
+        }
+        if current != source {
+            self.editor.update(cx, |editor, cx| {
+                editor.set_value(source.to_owned(), window, cx)
+            });
+        }
+        self.editor_source = Some(source.to_owned());
+        self.editor_loaded = true;
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn run_editor(&mut self, cx: &mut Context<Self>) {
@@ -155,6 +182,20 @@ impl MusicApp {
                                     cx.listener(|app, _, window, cx| app.load_editor(window, cx)),
                                 ),
                         )
+                        .when(self.editor_draft.is_some(), |row| {
+                            row.child(
+                                Button::new("editor-restore-draft")
+                                    .label("Restore previous draft")
+                                    .on_click(cx.listener(|app, _, window, cx| {
+                                        if let Some(draft) = app.editor_draft.take() {
+                                            app.editor.update(cx, |editor, cx| {
+                                                editor.set_value(draft, window, cx)
+                                            });
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                        })
                         .child(
                             Button::new("console-clear")
                                 .label("Clear messages")
@@ -563,6 +604,10 @@ impl MusicApp {
             #[cfg(not(target_arch = "wasm32"))]
             editor_loaded: false,
             #[cfg(not(target_arch = "wasm32"))]
+            editor_source: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            editor_draft: None,
+            #[cfg(not(target_arch = "wasm32"))]
             editor,
             source_scroll: ScrollHandle::new(),
             drag: None,
@@ -586,6 +631,10 @@ impl Render for MusicApp {
         self.viewport
             .update(cx, |viewport, cx| viewport.set_visible(v.mode == 0, cx));
         let s = frame.snapshot.as_ref().map(|s| s.value.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(snapshot) = &s {
+            self.sync_editor(&snapshot.source, window, cx);
+        }
         let sessions = self
             .bridge
             .shared
