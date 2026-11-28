@@ -64,11 +64,12 @@ fn source_generation_and_control_semantics() {
 fn real_accepted_voice_fields_are_not_invented_provenance() {
     let mut a = Adapter::new("test".into(), "écho".into(), 1);
     a.ingest(&layout("écho", 1)).unwrap();
-    let value = json!({"ui_events":{"version":2,"generation":1,"source_revision":a.revision,"cycle":0.,"cps":0.5,"events":[{"onset_id":0,"whole_begin":"0/1","duration_seconds":0.5,"frequency_hz":440.,"gain":0.2,"lane":0,"sound":"sine","context":[[0,2],[1,3]]}]}});
+    let value = json!({"ui_events":{"version":2,"generation":1,"source_revision":a.revision,"cycle":0.,"cps":0.5,"events":[{"onset_id":0,"whole_begin":"0/1","duration_seconds":0.5,"frequency_hz":440.,"gain":0.2,"lane":0,"sound":"sine","ui_visuals":8,"context":[[0,2],[1,3]]}]}});
     let output = a.ingest(&value.to_string()).unwrap();
     assert!(matches!(output.first(), Some(Output::Snapshot(_))));
     let e = &a.snapshot.events[0];
     assert_eq!(e.pitch, Some(69.));
+    assert_eq!(e.ui_visuals, 8);
     assert_eq!(e.original_pitch, None);
     assert!(e.part.is_empty());
     assert_eq!(e.context, vec![(0, 2)]);
@@ -76,6 +77,20 @@ fn real_accepted_voice_fields_are_not_invented_provenance() {
     let mut stale = value;
     stale["ui_events"]["generation"] = json!(9);
     assert!(a.ingest(&stale.to_string()).unwrap().is_empty());
+}
+#[test]
+fn preserves_individual_visual_audio_analysis() {
+    let mut adapter = Adapter::new("test".into(), "$: s(\"sine\")".into(), 1);
+    adapter.ingest(&layout("$: s(\"sine\")", 1)).unwrap();
+    let output = adapter.ingest(&json!({"ui_audio": {
+        "version":1,"generation":1,"sequence":3,"stream_id":1,"epoch":1,"end_frame":512,
+        "sample_rate":48000,"device_time":0.1,"scope":vec![0.;512],"spectrum":vec![-100.;512],
+        "visuals":[{"slot":3,"scope":vec![0.25;512],"spectrum":vec![-24.;512]}]
+    }}).to_string()).unwrap();
+    let Output::Audio(audio) = &output[0] else {panic!("expected audio")};
+    assert_eq!(audio.visuals[0].slot, 3);
+    assert_eq!(audio.visuals[0].scope[0], 0.25);
+    assert!(audio.valid());
 }
 #[test]
 #[ignore = "requires RUSTEL_UPSTREAM_EXE pointing at a device-audio,midi upstream build"]

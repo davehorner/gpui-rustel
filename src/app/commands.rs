@@ -194,14 +194,7 @@ impl MusicApp {
                 self.console_open = true;
                 self.load_editor(window, cx);
             }
-            Action::Studio => {
-                #[cfg(target_arch = "wasm32")]
-                if let Some(browser) = web_sys::window() {
-                    let _ = browser.location().set_search("?studio");
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                cx.open_url("https://davehorner.github.io/gpui-rustel/?studio");
-            }
+            Action::Studio => self.open_studio(window, cx),
         }
         cx.notify();
     }

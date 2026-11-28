@@ -5,6 +5,8 @@ mod bridge;
 #[path = "web_bridge.rs"]
 mod bridge;
 mod charts;
+#[cfg(not(target_arch = "wasm32"))]
+mod desktop_studio;
 mod model;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;

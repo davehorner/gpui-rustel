@@ -2088,10 +2088,19 @@ index d85a150..1394425 100644
          // Earliest onset the cap left unqueued; the cursor stops there.
          let mut unprocessed_begin: Option<Fraction> = None;
 diff --git a/crates/studio/Cargo.toml b/crates/studio/Cargo.toml
-index 85d6c27..93b2994 100644
+index 85d6c27..34eeba3 100644
 --- a/crates/studio/Cargo.toml
 +++ b/crates/studio/Cargo.toml
-@@ -36,6 +36,7 @@ remote-control = ["dep:getrandom"]
+@@ -8,6 +8,8 @@ publish = false
+ description = "The terminal studio behind `rustel studio`: editor, visuals, mixer and its live engine"
+ 
+ [features]
++# UI-only host seam: no Studio engine or audio device is started.
++external-host = []
+ # The complete studio. `--no-default-features` keeps the editor and live
+ # playback; each feature below adds one capability back and turns on the
+ # runtime feature of the same name when the runtime has one.
+@@ -36,6 +38,7 @@ remote-control = ["dep:getrandom"]
  harness = ["rustel-runtime/test-support"]
  
  [dependencies]
@@ -2099,7 +2108,7 @@ index 85d6c27..93b2994 100644
  # Every studio plays live, lists MIDI ports so a score can name one without
  # leaving the editor, and records its set.
  rustel-runtime = { path = "../runtime", default-features = false, features = [
-@@ -70,7 +71,6 @@ winit = { version = "0.30", optional = true }
+@@ -70,7 +73,6 @@ winit = { version = "0.30", optional = true }
  softbuffer = { version = "0.4", optional = true }
  # The terminal studio is intentionally a Rust-only surface. Ratatui shares the
  # exact Crossterm 0.29 event types used for enhanced-keyboard negotiation.
@@ -2107,7 +2116,7 @@ index 85d6c27..93b2994 100644
  crossterm = "0.29"
  # zlib for the kitty graphics protocol: a frame of pixels is a few hundred
  # kilobytes raw and a few tens compressed, forty times a second.
-@@ -86,6 +86,9 @@ regex = "1"
+@@ -86,6 +88,9 @@ regex = "1"
  unicode-segmentation = "1.12"
  unicode-width = "0.2"
  
@@ -2117,7 +2126,7 @@ index 85d6c27..93b2994 100644
  [target.'cfg(unix)'.dependencies]
  # Terminal polling and size, and standard error pointed at the studio log.
  libc = "0.2"
-@@ -124,3 +127,6 @@ rustel-mini = { path = "../mini" }
+@@ -124,3 +129,6 @@ rustel-mini = { path = "../mini" }
  
  [lints]
  workspace = true
@@ -2125,7 +2134,7 @@ index 85d6c27..93b2994 100644
 +[target.'cfg(target_arch = "wasm32")'.dependencies]
 +web-sys = { version = "0.3", features = ["Window", "Storage"] }
 diff --git a/crates/studio/src/app.rs b/crates/studio/src/app.rs
-index 8bca756..9327779 100644
+index 8bca756..dd82393 100644
 --- a/crates/studio/src/app.rs
 +++ b/crates/studio/src/app.rs
 @@ -71,7 +71,7 @@ use std::path::PathBuf;
@@ -2224,29 +2233,35 @@ index 8bca756..9327779 100644
                  }
              }
  
-@@ -3645,3 +3651,271 @@ mod tests {
+@@ -3645,3 +3651,322 @@ mod tests {
          }
      }
  }
 +
 +/// Browser frontend for the real Studio application. The host owns scheduling,
 +/// input, audio messages and persistence; rendering and interaction stay in App.
-+#[cfg(target_arch = "wasm32")]
++#[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +pub struct BrowserStudio {
 +    app: App,
 +    analyzer: rustel_runtime::ui_analysis::UiAudioAnalyzer,
 +    cursor: Option<(u16, u16)>,
++    #[cfg(all(feature = "external-host", not(target_arch = "wasm32")))]
++    _workspace: tempfile::TempDir,
 +}
-+#[cfg(target_arch = "wasm32")]
++#[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +impl BrowserStudio {
 +    pub fn new(source: &str, state: Option<&str>) -> Result<Self, String> {
 +        let mut options = StudioOptions::new("browser");
 +        options.memory_clipboard = false;
 +        options.default_samples = false;
-+        let scenes = match state.and_then(SceneSet::from_browser_state) {
++        let mut scenes = match state.and_then(SceneSet::from_browser_state) {
 +            Some(scenes) => scenes,
 +            None => SceneSet::from_browser_source(source).map_err(|e| e.to_string())?,
 +        };
++        #[cfg(all(feature = "external-host", not(target_arch = "wasm32")))]
++        let workspace = tempfile::tempdir().map_err(|e| e.to_string())?;
++        #[cfg(all(feature = "external-host", not(target_arch = "wasm32")))]
++        scenes.host_directory(workspace.path().to_owned());
 +        let worker = StudioWorker::browser().map_err(|e| e.message)?;
 +        let mut app = App::new(options, Theme::built_in_default(), scenes, worker)
 +            .map_err(|e| e.to_string())?;
@@ -2265,6 +2280,8 @@ index 8bca756..9327779 100644
 +            app,
 +            analyzer: rustel_runtime::ui_analysis::UiAudioAnalyzer::new(),
 +            cursor: None,
++            #[cfg(all(feature = "external-host", not(target_arch = "wasm32")))]
++            _workspace: workspace,
 +        })
 +    }
 +    pub fn play(&mut self) -> Result<(), String> {
@@ -2294,6 +2311,7 @@ index 8bca756..9327779 100644
 +    pub fn cursor(&self) -> Option<(u16, u16)> {
 +        self.cursor
 +    }
++    #[cfg(target_arch = "wasm32")]
 +    pub fn clipboard(&mut self) -> String {
 +        PlatformClipboard::browser_text()
 +    }
@@ -2314,9 +2332,11 @@ index 8bca756..9327779 100644
 +        self.app.flush_pending_evaluation();
 +        self.app.flush_pending_sliders();
 +        let mut commands = self.app.worker.browser_commands();
++        #[cfg(target_arch = "wasm32")]
 +        if PlatformClipboard::take_browser_read() {
 +            commands.push(serde_json::json!({"type":"clipboard-read"}));
 +        }
++        #[cfg(target_arch = "wasm32")]
 +        if let Some(text) = PlatformClipboard::take_browser_write() {
 +            commands.push(serde_json::json!({"type":"clipboard-write","text":text}));
 +        }
@@ -2459,6 +2479,46 @@ index 8bca756..9327779 100644
 +                sides: Vec::new(),
 +            },
 +        );
++        Ok(())
++    }
++    #[cfg(feature = "external-host")]
++    pub fn host_selection(&self) -> (usize, usize) {
++        let selection = self.app.editor().primary_selection();
++        (selection.anchor.get(), selection.head.get())
++    }
++    #[cfg(feature = "external-host")]
++    pub fn host_select(&mut self, from: usize, to: usize) -> Result<(), String> {
++        use crate::editor::{ByteOffset, Selection};
++        self.app.editor_mut().set_selection(Selection::range(ByteOffset(from), ByteOffset(to))).map_err(|e| e.to_string())
++    }
++    /// Adopt the source confirmed by an external runtime. Never evaluates it here.
++    #[cfg(feature = "external-host")]
++    pub fn host_source(&mut self, source: &str, generation: u64, replace_editor: bool) -> Result<(), String> {
++        if replace_editor && self.source() != source {
++            *self.app.editor_mut() = Editor::new(source).map_err(|e| e.to_string())?;
++        }
++        if self.source() == source {
++            let scene = self.app.scenes.current().id;
++            let revision = self.app.editor().revision();
++            self.app.evaluation_revisions.remember(source_revision(source), revision, Arc::from(source), scene, None);
++        }
++        self.app.evaluated_source = Some(source.into());
++        self.app.worker.browser_evaluated(0, 0, source, generation, None);
++        self.app.drain_engine();
++        Ok(())
++    }
++    /// Already reduced audio from the existing runtime; no FFT or audio device here.
++    #[cfg(feature = "external-host")]
++    pub fn host_audio(&mut self, json: &str) -> Result<(), String> {
++        use rustel_runtime::{ui_analysis::{UiAudioAnalysisFrame, UiAudioAnalysisSet}, ui_events::{UiAudioFrame, UiAudioMetadata}};
++        let value: UiAudioFrame = serde_json::from_str(json).map_err(|e| e.to_string())?;
++        let make = |scope: Vec<f32>, spectrum: Vec<f32>| -> Result<UiAudioAnalysisFrame, String> {
++            Ok(UiAudioAnalysisFrame {scope: scope.try_into().map_err(|_| "Expected 512 scope samples")?, spectrum: spectrum.try_into().map_err(|_| "Expected 512 spectrum bins")?})
++        };
++        let master = make(value.scope, value.spectrum)?;
++        self.app.worker.master().browser_peak(master.scope.iter().map(|v| v.abs()).fold(0.0, f32::max));
++        let visuals = value.visuals.unwrap_or_default().into_iter().map(|v| Ok((v.slot, make(v.scope,v.spectrum)?))).collect::<Result<Vec<_>, String>>()?;
++        self.app.visual.install_audio(UiAudioMetadata { sequence: value.sequence, generation: value.generation, device_time: value.device_time, stream_id: value.stream_id, epoch: value.epoch, end_frame: value.end_frame, sample_rate: value.sample_rate }, UiAudioAnalysisSet {master, visuals, sides: Vec::new()});
 +        Ok(())
 +    }
 +    pub fn render(&mut self, width: u16, height: u16) -> Result<ratatui::buffer::Buffer, String> {
@@ -3090,7 +3150,7 @@ index a7dda4a..dcdb60b 100644
 +    }
 +}
 diff --git a/crates/studio/src/engine.rs b/crates/studio/src/engine.rs
-index cb7d29a..53e3253 100644
+index cb7d29a..0f85506 100644
 --- a/crates/studio/src/engine.rs
 +++ b/crates/studio/src/engine.rs
 @@ -10,7 +10,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -3106,7 +3166,7 @@ index cb7d29a..53e3253 100644
  }
  
  impl StudioStopHandle {
-+    #[cfg(target_arch = "wasm32")]
++    #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +    pub(crate) fn browser() -> Self {
 +        Self {
 +            transport: Arc::new(Transport::default()),
@@ -3119,7 +3179,7 @@ index cb7d29a..53e3253 100644
  }
  
  impl StudioMasterBus {
-+    #[cfg(target_arch = "wasm32")]
++    #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +    pub(crate) fn browser_peak(&self, peak: f32) {
 +        self.peak_bits
 +            .fetch_max(peak.max(0.0).to_bits(), Ordering::Relaxed);
@@ -3896,14 +3956,14 @@ index 477122c..65381a6 100644
              .write(true)
              .open(&path)
 diff --git a/crates/studio/src/scenes.rs b/crates/studio/src/scenes.rs
-index 3bdc19e..39a87c2 100644
+index 3bdc19e..596dee1 100644
 --- a/crates/studio/src/scenes.rs
 +++ b/crates/studio/src/scenes.rs
-@@ -766,6 +766,19 @@ pub struct SceneSet {
+@@ -766,6 +766,26 @@ pub struct SceneSet {
  }
  
  impl SceneSet {
-+    #[cfg(target_arch = "wasm32")]
++    #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +    pub fn from_browser_source(source: &str) -> Result<Self, EditorError> {
 +        let mut set = Self::empty(PathBuf::from("browser"));
 +        set.scenes.push(Scene::new(
@@ -3916,18 +3976,25 @@ index 3bdc19e..39a87c2 100644
 +        set.next_id = 2;
 +        Ok(set)
 +    }
++    #[cfg(feature = "external-host")]
++    pub(crate) fn host_directory(&mut self, directory: PathBuf) {
++        for scene in &mut self.scenes {
++            scene.path = directory.join(scene.path.file_name().unwrap_or_default());
++        }
++        self.directory = directory;
++    }
      fn empty(directory: PathBuf) -> Self {
          Self {
              directory,
-@@ -786,6 +799,45 @@ impl SceneSet {
+@@ -786,6 +806,45 @@ impl SceneSet {
          }
      }
  
-+    #[cfg(target_arch = "wasm32")]
++    #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +    pub fn browser_state(&self) -> String {
 +        serde_json::json!({ "current":self.current, "documents":self.scenes.iter().filter(|s|s.is_score()).map(|s|serde_json::json!({"name":s.path.file_name().unwrap_or_default().to_string_lossy(),"source":s.editor.source()})).collect::<Vec<_>>() }).to_string()
 +    }
-+    #[cfg(target_arch = "wasm32")]
++    #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +    pub fn from_browser_state(text: &str) -> Option<Self> {
 +        if text.len() > 2 * 1024 * 1024 {
 +            return None;
@@ -3965,7 +4032,7 @@ index 3bdc19e..39a87c2 100644
      /// What became of this set's unreadable set file. Returns it on the
      /// first call only. The state itself stays: a stranded file must keep
      /// refusing writes.
-@@ -1427,11 +1479,14 @@ impl SceneSet {
+@@ -1427,11 +1486,14 @@ impl SceneSet {
      fn create_at(&mut self, source: &str, path: PathBuf) -> Result<SceneId, SceneError> {
          // The folder mirrors the strip: a scene exists on disk from the
          // moment it exists on screen.
@@ -4480,7 +4547,7 @@ index 668d9b9..a13712e 100644
  const CHANNELS: u16 = 2;
  const BYTES_PER_SAMPLE: u32 = 3;
 diff --git a/crates/studio/src/worker.rs b/crates/studio/src/worker.rs
-index e170537..028ec10 100644
+index e170537..37f4894 100644
 --- a/crates/studio/src/worker.rs
 +++ b/crates/studio/src/worker.rs
 @@ -8,7 +8,7 @@ use std::sync::mpsc::{
@@ -4496,8 +4563,8 @@ index e170537..028ec10 100644
  /// have independent bounds so a dense score cannot bury an evaluation error
  /// or the stop acknowledgement behind visualization traffic.
  pub struct StudioWorker {
-+    #[cfg(target_arch = "wasm32")]
-+    browser: BrowserWorker,
++    #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
++    browser: Option<BrowserWorker>,
      commands: SyncSender<EngineCommand>,
      controls: Receiver<StudioControlEvent>,
      traces: Receiver<UiTraceBatchRequest>,
@@ -4505,8 +4572,8 @@ index e170537..028ec10 100644
          })??;
  
          Ok(Self {
-+            #[cfg(target_arch = "wasm32")]
-+            browser: unreachable!("Use StudioWorker::browser in WASM"),
++            #[cfg(any(target_arch = "wasm32", feature = "external-host"))]
++            browser: None,
              commands,
              controls,
              traces,
@@ -4515,26 +4582,26 @@ index e170537..028ec10 100644
      }
  }
 +
-+#[cfg(target_arch = "wasm32")]
++#[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +struct BrowserWorker {
 +    playing: std::cell::Cell<bool>,
 +    commands: Receiver<EngineCommand>,
 +    controls: SyncSender<StudioControlEvent>,
 +    _traces: SyncSender<UiTraceBatchRequest>,
 +}
-+#[cfg(target_arch = "wasm32")]
++#[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +impl StudioWorker {
 +    pub(crate) fn browser() -> Result<Self, EngineFailure> {
 +        let (commands, input) = sync_channel(64);
 +        let (output, controls) = sync_channel(CONTROL_CAPACITY);
 +        let (trace_tx, traces) = sync_channel(TRACE_CAPACITY);
 +        Ok(Self {
-+            browser: BrowserWorker {
++            browser: Some(BrowserWorker {
 +                playing: std::cell::Cell::new(false),
 +                commands: input,
 +                controls: output,
 +                _traces: trace_tx,
-+            },
++            }),
 +            commands,
 +            controls,
 +            traces,
@@ -4561,16 +4628,16 @@ index e170537..028ec10 100644
 +    pub(crate) fn browser_commands(&self) -> Vec<serde_json::Value> {
 +        use serde_json::json;
 +        let mut output = Vec::new();
-+        while let Ok(command) = self.browser.commands.try_recv() {
++        while let Ok(command) = self.browser.as_ref().expect("external host").commands.try_recv() {
 +            match command {
 +                EngineCommand::Evaluate { request_id, editor_revision, source, mini, rewind, .. } => output.push(json!({ "type":"evaluate", "request":request_id, "revision":editor_revision, "source":source.as_ref(), "mini":mini, "rewind":rewind })),
 +                EngineCommand::Stop | EngineCommand::StopImmediate | EngineCommand::Shutdown => output.push(json!({"type":"stop"})),
 +                EngineCommand::SetOrbitGain { orbit, gain } => output.push(json!({"type":"orbit-gain", "orbit":orbit,"gain":gain})),
 +                EngineCommand::SetSlider { id,value,.. } => output.push(json!({"type":"slider","id":id,"value":value})),
 +                EngineCommand::LookUpSamples(_,done) => {done.fetch_add(1,Ordering::Release);},
-+                EngineCommand::EvaluatePrebake {request_id,scope,..} => {let _=self.browser.controls.try_send(StudioControlEvent::Prebake(PrebakeOutcome {request_id,scope,result:Err(browser_unsupported("Prebake evaluation"))}));},
-+                EngineCommand::Record {request_id,..} => {let _=self.browser.controls.try_send(StudioControlEvent::Recording(RecordingOutcome {request_id:Some(request_id),result:Err(browser_unsupported("Native recording"))}));},
-+                EngineCommand::RecordSample {request_id,..} => {let _=self.browser.controls.try_send(StudioControlEvent::SampleRecording(SampleRecordingOutcome {request_id,result:Err(browser_unsupported("Audio input recording"))}));},
++                EngineCommand::EvaluatePrebake {request_id,scope,..} => {let _=self.browser.as_ref().expect("external host").controls.try_send(StudioControlEvent::Prebake(PrebakeOutcome {request_id,scope,result:Err(browser_unsupported("Prebake evaluation"))}));},
++                EngineCommand::Record {request_id,..} => {let _=self.browser.as_ref().expect("external host").controls.try_send(StudioControlEvent::Recording(RecordingOutcome {request_id:Some(request_id),result:Err(browser_unsupported("Native recording"))}));},
++                EngineCommand::RecordSample {request_id,..} => {let _=self.browser.as_ref().expect("external host").controls.try_send(StudioControlEvent::SampleRecording(SampleRecordingOutcome {request_id,result:Err(browser_unsupported("Audio input recording"))}));},
 +                EngineCommand::Audition(..)|EngineCommand::AuditionNotes(..)|EngineCommand::AuditionRun(..)|EngineCommand::PianoNoteOn {..}|EngineCommand::SetInput(Some(_))|EngineCommand::ClockIn(Some(_))|EngineCommand::ClockOut(Some(_))|EngineCommand::Link(true) => output.push(json!({"type":"unsupported","message":"This control requires a native audio or MIDI host"})),
 +                _ => {},
 +            }
@@ -4598,7 +4665,7 @@ index e170537..028ec10 100644
 +            None => {
 +                if let Ok(layout) = rustel_runtime::ui_events::visual_layout(source, generation) {
 +                    let _ = self
-+                        .browser
++                        .browser.as_ref().expect("external host")
 +                        .controls
 +                        .try_send(StudioControlEvent::Layout(layout));
 +                }
@@ -4612,7 +4679,7 @@ index e170537..028ec10 100644
 +            }
 +        };
 +        let _ = self
-+            .browser
++            .browser.as_ref().expect("external host")
 +            .controls
 +            .try_send(StudioControlEvent::Evaluation(EvaluationOutcome {
 +                request_id: request,
@@ -4641,19 +4708,19 @@ index e170537..028ec10 100644
 +            ..Default::default()
 +        };
 +        let _ = self
-+            .browser
++            .browser.as_ref().expect("external host")
 +            .controls
 +            .try_send(StudioControlEvent::Snapshot(Box::new(snapshot)));
-+        if self.browser.playing.replace(playing) && !playing {
++        if self.browser.as_ref().expect("external host").playing.replace(playing) && !playing {
 +            let _ = self
-+                .browser
++                .browser.as_ref().expect("external host")
 +                .controls
 +                .try_send(StudioControlEvent::Stopped(Box::new(StudioStop::idle())));
 +        }
 +    }
 +}
 +
-+#[cfg(target_arch = "wasm32")]
++#[cfg(any(target_arch = "wasm32", feature = "external-host"))]
 +fn browser_unsupported(feature: &str) -> EngineFailure {
 +    EngineFailure {
 +        kind: "unsupported".into(),

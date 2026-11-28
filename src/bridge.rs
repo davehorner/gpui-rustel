@@ -227,7 +227,23 @@ impl Bridge {
         self.worker.take()
     }
     pub fn tick(&mut self) {}
-    pub fn send(&mut self, snapshot: &Snapshot, mut command: Command) {
+    pub fn send(&mut self, snapshot: &Snapshot, command: Command) {
+        self.send_inner(snapshot, command, None);
+    }
+    pub fn send_with_reply(
+        &mut self,
+        snapshot: &Snapshot,
+        command: Command,
+    ) -> Option<mpsc::Receiver<Response>> {
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.send_inner(snapshot, command, Some(tx)).then_some(rx)
+    }
+    fn send_inner(
+        &mut self,
+        snapshot: &Snapshot,
+        mut command: Command,
+        reply: Option<mpsc::SyncSender<Response>>,
+    ) -> bool {
         self.serial += 1;
         command.request = format!("gpui-{}-{}", std::process::id(), self.serial);
         command.session = snapshot.session.clone();
@@ -242,20 +258,25 @@ impl Bridge {
         };
         if let Some(error) = error {
             state.feedback = error;
-            return;
+            return false;
         }
         if state.pending.len() >= 64 {
             state.feedback = "Too many pending commands".into();
-            return;
+            return false;
         }
         let request = command.request.clone();
         if self.commands.try_send(command).is_ok() {
+            if let Some(reply) = reply {
+                state.control_replies.insert(request.clone(), reply);
+            }
             state
                 .pending
                 .insert(request, Instant::now() + Duration::from_secs(15));
             state.feedback = "Applying…".into();
+            true
         } else {
             state.feedback = "Command queue unavailable".into();
+            false
         }
     }
 }
@@ -282,6 +303,41 @@ pub fn command() -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn studio_commands_receive_only_their_correlated_acknowledgement() {
+        let shared = Arc::new(Mutex::new(State::default()));
+        let s = snapshot();
+        shared.lock().unwrap().receive_snapshot(s.clone());
+        let (commands, queue) = mpsc::sync_channel(4);
+        let mut bridge = Bridge {
+            shared: shared.clone(),
+            commands,
+            stop: None,
+            serial: 0,
+            worker: None,
+            restart: None,
+        };
+        let mut c = command();
+        c.transport = Some(music_link::TransportCommand::Stop);
+        let reply = bridge.send_with_reply(&s, c).unwrap();
+        let sent = queue.try_recv().unwrap();
+        assert_eq!(sent.session, s.session);
+        assert_eq!(sent.generation, s.generation);
+        shared.lock().unwrap().reply(&Response {
+            request: "unrelated".into(),
+            accepted: true,
+            message: String::new(),
+        });
+        assert!(reply.try_recv().is_err());
+        shared.lock().unwrap().reply(&Response {
+            request: sent.request,
+            accepted: false,
+            message: "rejected".into(),
+        });
+        let result = reply.try_recv().unwrap();
+        assert!(!result.accepted);
+        assert_eq!(result.message, "rejected");
+    }
     fn snapshot() -> Snapshot {
         Snapshot {
             version: 1,

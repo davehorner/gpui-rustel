@@ -2,6 +2,8 @@
 from pathlib import Path
 import subprocess,sys
 ROOT=Path(__file__).resolve().parents[1]
+# The native Studio UI uses the same pinned, maintained host seam as WASM.
+subprocess.run([sys.executable,str(ROOT/'wasm-audio/prepare_engine.py')],check=True)
 subprocess.run(['git','submodule','update','--init','--depth','1','--','vendor/gpui-nightshade'],cwd=ROOT,check=True)
 engine=ROOT/'vendor/gpui-nightshade/upstream/nightshade'
 patches=[ROOT/'patches'/name for name in ['viewer-generated-scene.patch','viewer-music-extension.patch']]

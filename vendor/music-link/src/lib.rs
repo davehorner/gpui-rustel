@@ -68,7 +68,7 @@ mod named_part_tests {
         let part = NamedPart { name: "moon".into(), color: named_color("moon"), helper: false };
         let lane = |id: &str| Lane { id: id.into(), source: "$: arrangement".into(), parts: vec![part.clone()], ..Default::default() };
         let event = |lane: &str, part: &str, id| Event { lane: lane.into(), part: part.into(), id,
-            block_label: String::new(), rest: false,
+            block_label: String::new(), rest: false, ui_visuals: 0,
             part_color: named_color(part), cycle: 0.0, duration: 1.0, original_pitch: None,
             pitch: None, sound: "bd".into(), gain: 1.0, context: vec![], controls: Default::default() };
         let source = Snapshot { lanes: vec![lane("#1"), lane("#2")],
@@ -102,6 +102,8 @@ mod named_part_tests {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AudioFrame {
+    #[serde(default)]
+    pub visuals: Vec<VisualAudioFrame>,
     pub version: u32,
     pub session: String,
     pub generation: u64,
@@ -116,9 +118,18 @@ pub struct AudioFrame {
     pub sides: Vec<[f32; 2]>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualAudioFrame {
+    pub slot: u8,
+    pub scope: Vec<f32>,
+    pub spectrum: Vec<f32>,
+}
+
 impl AudioFrame {
     pub fn valid(&self) -> bool {
-        self.version == 1
+        self.visuals.len() <= 64
+            && self.visuals.iter().all(|v| v.slot < 64 && v.scope.len() == 512 && v.spectrum.len() == 512 && v.scope.iter().chain(&v.spectrum).all(|v| v.is_finite()))
+            && self.version == 1
             && self.session.len() <= 128
             && self.sample_rate > 0
             && self.device_time.is_finite()
@@ -198,6 +209,8 @@ pub fn virtual_parent(id: &str) -> Option<(&str, &str)> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Event {
+    #[serde(default)]
+    pub ui_visuals: u64,
     /// Producer-resolved sound, mini token and controls for block faces.
     #[serde(default)]
     pub block_label: String,

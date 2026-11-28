@@ -38,6 +38,9 @@ oxc_span = "0.144.0"
 oxc_semantic = "0.144.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rustel-studio = { path = ".build-sources/rustel-browser-engine/crates/studio", default-features = false, features = ["external-host"] }
+crossterm = "0.29"
+ratatui = { version = "0.30", default-features = false }
 pollster = "0.4"
 tokio = { version = "1", features = ["rt", "time", "sync", "macros", "net"] }
 
@@ -50,10 +53,11 @@ console_log = "1"
 log = "0.4"
 
 [workspace]
-exclude = ["upstream-adapter", "wasm-audio", "vendor/gpui-nightshade", "vendor/music-link"]
+exclude = [".build-sources/rustel-browser-engine", ".build-sources/rustel-browser-engine/crates/*", "upstream-adapter", "wasm-audio", "vendor/gpui-nightshade", "vendor/music-link"]
 resolver = "2"
 
 [patch.crates-io]
+crossterm = { path = "wasm-studio/vendor/crossterm" }
 gpui-pre-wgpu = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui-wgpu" }
 wgpu = { path = "vendor/gpui-nightshade/upstream/wgpu-web-compat" }
 gpui-pre = { path = "vendor/gpui-nightshade/upstream/gpui-snapshot/gpui" }

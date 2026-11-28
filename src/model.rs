@@ -251,6 +251,7 @@ mod tests {
             part_color: [0; 3],
             block_label: String::new(),
             rest: false,
+            ui_visuals: 0,
             controls: Default::default(),
         };
         s.events.push(event);
@@ -339,6 +340,7 @@ pub fn test_event() -> music_link::Event {
         gain: 1.,
         block_label: String::new(),
         rest: false,
+        ui_visuals: 0,
         part: String::new(),
         part_color: [0; 3],
         context: vec![],

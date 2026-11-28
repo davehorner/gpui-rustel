@@ -213,6 +213,7 @@ impl Adapter {
                     })
                     .unwrap_or_default();
                 let event = Event {
+                    ui_visuals: e["ui_visuals"].as_u64().or_else(|| e["ui_visuals"].as_str().and_then(|v| v.parse().ok())).unwrap_or(0),
                     id: integer(e, "onset_id")?,
                     lane,
                     cycle: start,
@@ -253,6 +254,7 @@ impl Adapter {
                 return Ok(vec![]);
             }
             let audio = AudioFrame {
+                visuals: a.get("visuals").filter(|v| !v.is_null()).map(|v| serde_json::from_value(v.clone())).transpose().map_err(|e| e.to_string())?.unwrap_or_default(),
                 version: 1,
                 session: self.snapshot.session.clone(),
                 generation: self.snapshot.generation,

@@ -56,6 +56,10 @@ pub(crate) struct MusicApp {
     editor_draft: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
     editor: Entity<TextareaState>,
+    #[cfg(not(target_arch = "wasm32"))]
+    studio: Option<Entity<crate::desktop_studio::DesktopStudio>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    studio_open: bool,
     source_scroll: ScrollHandle,
     drag: Option<Point<Pixels>>,
     tempo: Entity<InputState>,
@@ -63,6 +67,33 @@ pub(crate) struct MusicApp {
     _poll: Task<()>,
 }
 impl MusicApp {
+    fn open_studio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(browser) = web_sys::window() {
+            let _ = browser.location().set_search("?studio");
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.studio.is_none() {
+                let source = self
+                    .snapshot()
+                    .map(|s| s.source.clone())
+                    .unwrap_or_default();
+                match crate::desktop_studio::DesktopStudio::new(&source, cx) {
+                    Ok(studio) => self.studio = Some(cx.new(|_| studio)),
+                    Err(error) => {
+                        self.bridge.shared.lock().unwrap().feedback = error;
+                        return;
+                    }
+                }
+            }
+            self.studio_open = true;
+            window.focus(&self.studio.as_ref().unwrap().focus_handle(cx), cx);
+            cx.notify();
+        }
+        let _ = (window, cx);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn load_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(snapshot) = self.snapshot() {
@@ -620,6 +651,10 @@ impl MusicApp {
             editor_draft: None,
             #[cfg(not(target_arch = "wasm32"))]
             editor,
+            #[cfg(not(target_arch = "wasm32"))]
+            studio: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            studio_open: false,
             source_scroll: ScrollHandle::new(),
             drag: None,
             tempo,
@@ -638,6 +673,53 @@ impl Render for MusicApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let narrow = f32::from(window.viewport_size().width) < 760.;
         let frame = Frame::read(&self.bridge.shared, &self.settings);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.studio_open {
+            self.viewport
+                .update(cx, |viewport, cx| viewport.set_visible(false, cx));
+            let studio = self.studio.as_ref().unwrap().clone();
+            studio.update(cx, |studio, cx| studio.tick(&frame, &mut self.bridge, cx));
+            let status = studio.read(cx).status.clone();
+            let play = studio.clone();
+            let stop = studio.clone();
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(rgb(0x101216))
+                .text_color(rgb(0xdce9f7))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .p_2()
+                        .child(Button::new("studio-back").label("Back to stage").on_click(
+                            cx.listener(|app, _, window, cx| {
+                                app.studio_open = false;
+                                window.focus(&app.viewport.focus_handle(cx), cx);
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            Button::new("studio-play")
+                                .label("Play / Evaluate")
+                                .primary()
+                                .bg(rgb(0x2563eb))
+                                .text_color(rgb(0xffffff))
+                                .on_click(move |_, _, cx| {
+                                    play.update(cx, |studio, cx| studio.play(cx))
+                                }),
+                        )
+                        .child(Button::new("studio-stop").label("Stop").on_click(
+                            move |_, _, cx| stop.update(cx, |studio, cx| studio.stop(cx)),
+                        ))
+                        .child("Studio · native GPUI · shared runtime"),
+                )
+                .child(div().flex_1().min_h_0().child(studio))
+                .child(div().p_2().text_xs().child(status))
+                .into_any_element();
+        }
+
         let v = frame.visual.clone();
         self.viewport
             .update(cx, |viewport, cx| viewport.set_visible(v.mode == 0, cx));
@@ -711,15 +793,7 @@ impl Render for MusicApp {
             .child(
                 Button::new("open-studio")
                     .label("Studio")
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().set_search("?studio");
-                        }
-                        #[cfg(not(target_arch = "wasm32"))]
-                        cx.open_url("https://davehorner.github.io/gpui-rustel/?studio");
-                        let _ = cx;
-                    })),
+                    .on_click(cx.listener(|app, _, window, cx| app.open_studio(window, cx))),
             )
             .child(self.console_toggle(cx))
             .child(self.menu(
@@ -1199,5 +1273,6 @@ impl Render for MusicApp {
             .when_some(s.as_ref().and_then(|s| s.file_error.clone()), |d, error| {
                 d.child(error)
             })
+            .into_any_element()
     }
 }
