@@ -19,6 +19,7 @@ use std::{
 };
 
 struct Evaluation {
+    remote: Option<(crate::studio_mcp::Reply, u64)>,
     session: String,
     request: u64,
     revision: u64,
@@ -27,6 +28,9 @@ struct Evaluation {
     started: Instant,
 }
 pub struct DesktopStudio {
+    draft_id: String,
+    draft_revision: u64,
+    observed_draft: Option<(u64, u64, String)>,
     ui: StudioUi,
     focus: FocusHandle,
     bounds: Bounds<Pixels>,
@@ -41,7 +45,20 @@ pub struct DesktopStudio {
 }
 impl DesktopStudio {
     pub fn new(source: &str, cx: &mut App) -> Result<Self, String> {
+        static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let draft_id = format!(
+            "studio-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+            SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
         Ok(Self {
+            draft_id,
+            draft_revision: 0,
+            observed_draft: None,
             ui: StudioUi::new(source, None)?,
             focus: cx.focus_handle(),
             bounds: Bounds::default(),
@@ -58,6 +75,134 @@ impl DesktopStudio {
     pub fn play(&mut self, cx: &mut Context<Self>) {
         let result = self.ui.play();
         self.event_result(result, cx);
+    }
+    fn draft_id(&self) -> String {
+        self.draft_id.clone()
+    }
+    fn capture_draft(&mut self, frame: &Frame, open: bool) -> serde_json::Value {
+        let (scene, editor_revision, name) = self.ui.host_document();
+        let source = self.ui.source();
+        let observed = (scene, editor_revision, source.clone());
+        if self.observed_draft.as_ref() != Some(&observed) {
+            self.draft_revision = self.draft_revision.saturating_add(1);
+            self.observed_draft = Some(observed);
+        }
+        serde_json::json!({"draft_id":self.draft_id(),"revision":self.draft_revision,"source":source,"scene":name,"scene_id":scene,"editor_revision":editor_revision,"dirty":source!=self.running_source,"open":open,"execution_pending":self.pending.is_some(),"running_session":frame.snapshot.as_ref().map(|s|&s.value.session),"running_generation":frame.snapshot.as_ref().map(|s|s.value.generation)})
+    }
+    pub fn mcp_request(
+        &mut self,
+        request: crate::studio_mcp::Request,
+        frame: &Frame,
+        bridge: &mut Bridge,
+        open: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let crate::studio_mcp::Request { name, args, reply } = request;
+        if !reply.active() {
+            return;
+        }
+        let draft = self.capture_draft(frame, open);
+        if name != "get_studio_draft"
+            && (args["draft_id"] != draft["draft_id"]
+                || args["expected_revision"].as_u64() != Some(self.draft_revision))
+        {
+            reply.send(Err("Stale Studio draft; read get_studio_draft and review the current revision before editing or executing".into()));
+            return;
+        }
+        match name.as_str() {
+            "get_studio_draft" | "validate_studio_draft" => reply.send(Ok(draft)),
+            "set_studio_draft" => {
+                if self.marked.is_some() {
+                    reply.send(Err(
+                        "Finish text composition before remotely replacing the Studio draft".into(),
+                    ));
+                    return;
+                }
+                if self.pending.is_some() {
+                    reply.send(Err("Studio execution is pending; wait for its result before replacing the draft".into()));
+                    return;
+                }
+                let Some(source) = args["source"].as_str() else {
+                    reply.send(Err("source must be a string".into()));
+                    return;
+                };
+                if !reply.active() {
+                    return;
+                }
+                match self.ui.host_set_draft(source) {
+                    Ok(()) => {
+                        self.marked = None;
+                        self.status = "Studio draft updated; playback unchanged".into();
+                        let mut changed = self.capture_draft(frame, open);
+                        changed["boundary"] = serde_json::json!("studio_draft_revision");
+                        changed["playback_changed"] = serde_json::json!(false);
+                        reply.send(Ok(changed));
+                        cx.notify();
+                    }
+                    Err(error) => reply.send(Err(error)),
+                }
+            }
+            "execute_studio_draft" => {
+                if self.marked.is_some() {
+                    reply.send(Err(
+                        "Finish text composition before executing the Studio draft".into(),
+                    ));
+                    return;
+                }
+                if !bridge.is_hosted() {
+                    reply.send(Err("Studio execution requires an owned runtime".into()));
+                    return;
+                }
+                if self.pending.is_some() {
+                    reply.send(Err("A Studio execution is already pending".into()));
+                    return;
+                }
+                let Some(snapshot) = &frame.snapshot else {
+                    reply.send(Err("No current Rustel session".into()));
+                    return;
+                };
+                let s = &snapshot.value;
+                if args["session"].as_str() != Some(s.session.as_str())
+                    || args["generation"].as_u64() != Some(s.generation)
+                    || snapshot.at.elapsed() > Duration::from_secs(3)
+                {
+                    reply.send(Err(
+                        "Stale music session/generation; read get_music_state before executing"
+                            .into(),
+                    ));
+                    return;
+                }
+                let source = self.ui.source();
+                if let Err(error) = self.ui.host_set_draft(&source) {
+                    reply.send(Err(error));
+                    return;
+                }
+                if !reply.active() {
+                    return;
+                }
+                let mut c = command();
+                c.source_update = Some(source.clone());
+                match bridge.send_with_reply(s, c) {
+                    Some(receiver) => {
+                        self.pending = Some(Evaluation {
+                            remote: Some((reply, self.draft_revision)),
+                            session: s.session.clone(),
+                            request: 0,
+                            revision: self.ui.host_document().1,
+                            source,
+                            reply: receiver,
+                            started: Instant::now(),
+                        });
+                        self.status = "Executing the revision-checked Studio draft…".into();
+                        cx.notify();
+                    }
+                    None => {
+                        reply.send(Err("Runtime command was refused; playback unchanged".into()))
+                    }
+                }
+            }
+            _ => reply.send(Err("Unknown Studio tool".into())),
+        }
     }
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         let result = self.ui.stop();
@@ -112,8 +257,12 @@ impl DesktopStudio {
                         s.generation,
                         error.clone(),
                     );
-                    self.status =
-                        error.unwrap_or_else(|| "Score accepted by the existing runtime".into());
+                    self.status = error
+                        .clone()
+                        .unwrap_or_else(|| "Score accepted by the existing runtime".into());
+                    if let Some((remote, revision)) = pending.remote {
+                        remote.send(match error {Some(error)=>Err(error),None=>Ok(serde_json::json!({"draft_id":self.draft_id(),"revision":revision,"session":s.session,"generation":s.generation,"request":reply.request,"acknowledged":true,"boundary":"runtime_score_snapshot"}))});
+                    }
                 }
                 Err(mpsc::TryRecvError::Empty)
                     if pending.started.elapsed() < Duration::from_secs(16) =>
@@ -130,6 +279,9 @@ impl DesktopStudio {
                         Some(error.clone()),
                     );
                     self.status = error;
+                    if let Some((remote, _)) = pending.remote {
+                        remote.send(Err(self.status.clone()));
+                    }
                 }
             }
         }
@@ -209,6 +361,7 @@ impl DesktopStudio {
                     c.source_update = Some(source.clone());
                     if let Some(reply) = bridge.send_with_reply(s, c) {
                         self.pending = Some(Evaluation {
+                            remote: None,
                             session: s.session.clone(),
                             request,
                             revision,
@@ -706,6 +859,43 @@ fn paint(
 #[cfg(test)]
 mod tests {
     use super::{StudioUi, byte_offset};
+    #[test]
+    fn remote_draft_edits_are_undoable_and_do_not_queue_playback() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let source = "$: note(\"c3\").s(\"sine\")";
+                let mut ui = StudioUi::new(source, None).unwrap();
+                ui.host_source(source, 1, false).unwrap();
+                ui.transport(true, 1, 0., 0.5);
+                let _ = ui.commands();
+                let before = ui.host_document();
+                ui.host_set_draft("const broken = (").unwrap();
+                assert_ne!(ui.host_document().1, before.1);
+                for _ in 0..3 {
+                    ui.render(80, 25).unwrap();
+                    let commands: Vec<serde_json::Value> =
+                        serde_json::from_str(&ui.commands()).unwrap();
+                    assert!(
+                        !commands
+                            .iter()
+                            .any(|c| c["type"] == "evaluate" || c["type"] == "stop")
+                    );
+                }
+                ui.event(crossterm::event::Event::Key(
+                    crossterm::event::KeyEvent::new(
+                        crossterm::event::KeyCode::Char('z'),
+                        crossterm::event::KeyModifiers::CONTROL,
+                    ),
+                ))
+                .unwrap();
+                assert_eq!(ui.source(), source);
+                assert_ne!(ui.host_document().1, before.1);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
     #[test]
     fn real_studio_renders_colors_and_queues_evaluation_for_the_host() {
         std::thread::Builder::new()

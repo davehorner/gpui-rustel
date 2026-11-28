@@ -12,6 +12,10 @@ pub struct Received<T> {
 }
 #[derive(Default)]
 pub struct State {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub studio_requests: std::collections::VecDeque<crate::studio_mcp::Request>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub studio_validator: Option<rustel_ui_adapter::ScoreValidator>,
     pub sessions: BTreeMap<String, Received<Snapshot>>,
     pub capabilities: BTreeMap<String, rustel_ui_adapter::Capabilities>,
     pub audio: BTreeMap<String, Received<AudioFrame>>,

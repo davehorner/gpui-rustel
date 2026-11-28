@@ -20,3 +20,5 @@ mod web;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod music_mcp;
+#[cfg(not(target_arch = "wasm32"))]
+mod studio_mcp;

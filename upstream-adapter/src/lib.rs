@@ -4,4 +4,4 @@ mod adapter;
 mod host;
 pub use adapter::{Adapter, Capabilities, Output};
 #[cfg(not(target_arch = "wasm32"))]
-pub use host::{Config, Hosted};
+pub use host::{Config, Hosted, ScoreValidator};

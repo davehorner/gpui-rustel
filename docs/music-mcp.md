@@ -23,6 +23,42 @@ This is the viewer's existing **POST JSON-RPC** transport, advertising protocol 
 
 The browser GPUI/WASM and `?studio` applications do not host this native HTTP endpoint. Their editors can evaluate locally, but this endpoint controls the desktop process.
 
+## Native Studio drafts
+
+The same endpoint also exposes four tools for the real Studio editor inside GPUI. Requests are serviced on the UI thread, including while the Studio pane is closed. Reading a draft initializes the editor if necessary but does not open the pane or play audio.
+
+| Tool | Required arguments | Result |
+|---|---|---|
+| `get_studio_draft` | None | Selected scene's exact source, `draft_id`, monotonic `revision`, dirty/open state, and running session/generation |
+| `set_studio_draft` | `draft_id`, `expected_revision`, `source` | One undoable replacement; playback stays unchanged |
+| `validate_studio_draft` | `draft_id`, `expected_revision` | `valid`, structured Rustel diagnostics and the captured revision; does not install the score or start/stop audio |
+| `execute_studio_draft` | `draft_id`, `expected_revision`, `session`, `generation` | Executes that exact draft in the existing owned runtime and waits for a correlated acknowledgement at `runtime_score_snapshot` |
+
+Draft text and evaluated score are distinct. dirty means the draft differs from the evaluated score; it is not a disk-save flag. `get_music_score` still reads the running score; it does not read unsent Studio edits. Always read `get_studio_draft` before editing. Both the draft ID and revision are checked on the UI thread, so stale clients cannot overwrite newer edits. Undo, redo, and scene changes invalidate observed revisions. Sources are bounded to **512 KiB of UTF-8**, not just a character count. In-progress text composition or execution can refuse a replacement rather than losing user input.
+
+Validation uses the current owned runtime's executable in its validation-only mode, with a private sibling file to retain the current score's relative asset base. It runs off the GPUI thread, opens no playback device and sends no transport or score-install command. Only one validation-only request runs at a time, with an eight-second subprocess deadline and temporary-file cleanup. A validation result applies to its returned revision; it is not a promise that a subsequently edited draft is valid. Execution validates again before replacing playback, so an invalid draft preserves the previous score. Validation/execution require an owned runtime; a hub-only connection can still read and edit Studio drafts.
+
+Example, using the `tool()` helper below:
+
+```python
+draft = tool("get_studio_draft")
+draft = tool("set_studio_draft",
+    draft_id=draft["draft_id"], expected_revision=draft["revision"],
+    source='$: note("c3 e3 g3").s("sine").gain(0.1)._pianoroll()')
+guard = {"draft_id": draft["draft_id"], "expected_revision": draft["revision"]}
+report = tool("validate_studio_draft", **guard)
+if report["valid"]:
+    state = tool("get_music_state")
+    result = tool("execute_studio_draft", **guard,
+        session=state["session"], generation=state["generation"])
+else:
+    print(report["diagnostics"])
+```
+
+The UI request queue is bounded. Requests that expire before the UI starts them are discarded. An execution timeout after submission has an **unknown outcome**: read both the draft and music state before deciding what to do next; do not automatically resend it. Execution may be refused while another Studio evaluation is pending. Hidden/minimized panes still service requests through the app's existing UI update turn; no filesystem polling is added.
+
+For a dedicated test session, `python scripts/check_studio_mcp.py --url http://127.0.0.1:9632` checks revision protection, invalid diagnostics, validation without playback, and acknowledged execution. It temporarily edits drafts and stops/executes music, then restores the original source and draft. Do not run it against a session somebody else is editing.
+
 ### Read-only connection check
 
 ```powershell

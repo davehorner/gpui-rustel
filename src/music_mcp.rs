@@ -116,8 +116,14 @@ pub fn extension(
 ) -> nightshade_viewer_core::McpExtension {
     let serial = AtomicU64::new(0);
     nightshade_viewer_core::McpExtension {
-        tools: tools(),
+        tools: tools()
+            .into_iter()
+            .chain(crate::studio_mcp::tools())
+            .collect(),
         call: Arc::new(move |name, args| {
+            if name.ends_with("_studio_draft") {
+                return crate::studio_mcp::call(&shared, name, args);
+            }
             validate(name, &args)?;
             let mut state = shared.lock().map_err(|_| "Music state unavailable")?;
             if name == "get_music_messages" {

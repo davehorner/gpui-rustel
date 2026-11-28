@@ -67,6 +67,41 @@ pub(crate) struct MusicApp {
     _poll: Task<()>,
 }
 impl MusicApp {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn service_studio(&mut self, cx: &mut Context<Self>) {
+        let requests = self
+            .bridge
+            .shared
+            .lock()
+            .unwrap()
+            .studio_requests
+            .drain(..)
+            .collect::<Vec<_>>();
+        if self.studio.is_none() && requests.iter().any(|r| r.reply.active()) {
+            let source = self
+                .snapshot()
+                .map(|s| s.source.clone())
+                .unwrap_or_default();
+            match crate::desktop_studio::DesktopStudio::new(&source, cx) {
+                Ok(studio) => self.studio = Some(cx.new(|_| studio)),
+                Err(error) => {
+                    for request in requests {
+                        request.reply.send(Err(error.clone()));
+                    }
+                    return;
+                }
+            }
+        }
+        if let Some(studio) = self.studio.clone() {
+            let frame = Frame::read(&self.bridge.shared, &self.settings);
+            studio.update(cx, |studio, cx| {
+                studio.tick(&frame, &mut self.bridge, cx);
+                for request in requests {
+                    studio.mcp_request(request, &frame, &mut self.bridge, self.studio_open, cx);
+                }
+            });
+        }
+    }
     fn open_studio(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(target_arch = "wasm32")]
         if let Some(browser) = web_sys::window() {
@@ -625,6 +660,9 @@ impl MusicApp {
                         {
                             app.focused.clear();
                         }
+                        drop(v);
+                        #[cfg(not(target_arch = "wasm32"))]
+                        app.service_studio(cx);
                         cx.notify();
                     })
                     .is_err()
@@ -678,7 +716,6 @@ impl Render for MusicApp {
             self.viewport
                 .update(cx, |viewport, cx| viewport.set_visible(false, cx));
             let studio = self.studio.as_ref().unwrap().clone();
-            studio.update(cx, |studio, cx| studio.tick(&frame, &mut self.bridge, cx));
             let status = studio.read(cx).status.clone();
             let play = studio.clone();
             let stop = studio.clone();

@@ -19,6 +19,8 @@ Both targets use the same Nightshade stage: named-part colors, time/cycle and pi
 
 ## Rustel Studio
 
+Desktop Studio also has revision-checked MCP tools to read/edit its actual draft, validate without playback, and execute through the existing runtime. See [Native Studio draft tools](docs/music-mcp.md#native-studio-drafts) for schemas and an example.
+
 On desktop, **Studio** opens the real Rustel Ratatui editor inside the GPUI window. GPUI paints its colored cells and handles keyboard, pointer, clipboard and text composition. It starts with the current running score; **Play / Evaluate** (or F5) sends the draft to the existing owned Rustel runtime and waits for its acknowledgement. **Stop** (or F8) controls that same session. Note events and master/per-visual audio analysis drive Studio's piano rolls, scopes and spectra. **Back to stage** keeps the Studio draft and returns to the 3D view. External score changes follow into a clean Studio editor; an unsent draft is preserved.
 
 This native pane starts no browser, WASM audio host, Studio engine worker or additional audio device. It reuses the existing runtime process, including that runtime's current behavior of restarting its owned child when installing an edited score. Native plugin/device configuration, recording, live mixer/slider changes and mini-only evaluation are not exposed through the current bridge; unsupported host requests report that limitation. Studio's scene scratch files are private temporary files; the original running score file is preserved.

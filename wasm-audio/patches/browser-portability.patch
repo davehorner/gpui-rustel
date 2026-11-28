@@ -2134,7 +2134,7 @@ index 85d6c27..34eeba3 100644
 +[target.'cfg(target_arch = "wasm32")'.dependencies]
 +web-sys = { version = "0.3", features = ["Window", "Storage"] }
 diff --git a/crates/studio/src/app.rs b/crates/studio/src/app.rs
-index 8bca756..dd82393 100644
+index 8bca756..bf376cf 100644
 --- a/crates/studio/src/app.rs
 +++ b/crates/studio/src/app.rs
 @@ -71,7 +71,7 @@ use std::path::PathBuf;
@@ -2233,7 +2233,7 @@ index 8bca756..dd82393 100644
                  }
              }
  
-@@ -3645,3 +3651,322 @@ mod tests {
+@@ -3645,3 +3651,345 @@ mod tests {
          }
      }
  }
@@ -2479,6 +2479,29 @@ index 8bca756..dd82393 100644
 +                sides: Vec::new(),
 +            },
 +        );
++        Ok(())
++    }
++    #[cfg(feature = "external-host")]
++    pub fn host_document(&self) -> (u64, u64, String) {
++        let scene = self.app.scenes.current();
++        (scene.id.0, scene.editor.revision().0, scene.path.file_name().unwrap_or_default().to_string_lossy().into_owned())
++    }
++    /// A programmatic draft edit bypasses App's auto-evaluate path but retains undo.
++    #[cfg(feature = "external-host")]
++    pub fn host_set_draft(&mut self, source: &str) -> Result<(), String> {
++        use crate::editor::{ByteOffset, Command, HistoryMoment, MemoryClipboard};
++        if self.app.pending_evaluation.is_some() || !self.app.inflight.is_empty() || self.app.auto_evaluate_due {
++            return Err("Studio evaluation is pending; wait for its result before replacing the draft".into());
++        }
++        if source.len() > 512 * 1024 { return Err("Draft exceeds 512 KiB UTF-8".into()); }
++        if self.source() != source {
++            let end = self.app.editor().source().len();
++            self.app.editor_mut().close_history_group();
++            self.app.editor_mut().dispatch(Command::ReplaceRange {from: ByteOffset(0), to: ByteOffset(end), text: source.to_owned()}, HistoryMoment(0), &mut MemoryClipboard::default()).map_err(|e| e.to_string())?;
++            self.app.editor_mut().close_history_group();
++            self.app.invalidate_maps();
++            self.app.dirty_frame = true;
++        }
 +        Ok(())
 +    }
 +    #[cfg(feature = "external-host")]

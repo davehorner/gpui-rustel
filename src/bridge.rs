@@ -123,6 +123,7 @@ impl Bridge {
                         return;
                     }
                 };
+                state.lock().unwrap().studio_validator = Some(hosted.validator());
                 loop {
                     if !matches!(
                         stopped.try_recv(),
@@ -144,6 +145,11 @@ impl Bridge {
                         if let Err(error) = hosted.send(command) {
                             let mut state = state.lock().unwrap();
                             state.pending.remove(&request);
+                            state.reply(&Response {
+                                request,
+                                accepted: false,
+                                message: error.clone(),
+                            });
                             state.feedback = error;
                         }
                     }

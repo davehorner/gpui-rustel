@@ -141,6 +141,20 @@ impl Drop for EditorFiles {
     }
 }
 fn editor_score(config: &Config, text: &str, files: &mut EditorFiles) -> Result<PathBuf, String> {
+    let (path, report) = inspect_score(config, text, files)?;
+    if report["valid"] != true {
+        return Err(format!(
+            "Score rejected: {}",
+            report["message"].as_str().unwrap_or("Validation failed")
+        ));
+    }
+    Ok(path)
+}
+fn inspect_score(
+    config: &Config,
+    text: &str,
+    files: &mut EditorFiles,
+) -> Result<(PathBuf, serde_json::Value), String> {
     use std::sync::atomic::AtomicU64;
     static SERIAL: AtomicU64 = AtomicU64::new(0);
     if text.len() > 512 * 1024 {
@@ -180,14 +194,14 @@ fn editor_score(config: &Config, text: &str, files: &mut EditorFiles) -> Result<
     let began = std::time::Instant::now();
     loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            if !status.success() {
-                let message = source(&log).unwrap_or_default();
-                return Err(format!(
-                    "Score rejected: {}",
-                    message.chars().take(4096).collect::<String>()
-                ));
-            }
-            break;
+            let message = source(&log).map_err(|e| e.to_string())?;
+            let diagnostics = message
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .take(128)
+                .collect::<Vec<_>>();
+            let report = serde_json::json!({"valid":status.success(),"diagnostics":diagnostics,"message":message.chars().take(16384).collect::<String>()});
+            return Ok((path, report));
         }
         if began.elapsed() > Duration::from_secs(8) {
             let _ = child.kill();
@@ -196,7 +210,40 @@ fn editor_score(config: &Config, text: &str, files: &mut EditorFiles) -> Result<
         }
         thread::sleep(Duration::from_millis(20));
     }
-    Ok(path)
+}
+
+/// A validation-only view of the owned runtime's executable and current score base.
+/// It never sends playback commands or installs the checked source.
+#[derive(Clone)]
+pub struct ScoreValidator {
+    config: Arc<std::sync::Mutex<Config>>,
+    busy: Arc<AtomicBool>,
+}
+impl ScoreValidator {
+    pub fn validate(&self, text: &str) -> Result<serde_json::Value, String> {
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err("A Studio validation is already running".into());
+        }
+        struct Reset(Arc<AtomicBool>);
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let _reset = Reset(self.busy.clone());
+        let config = self
+            .config
+            .lock()
+            .map_err(|_| "Runtime validation configuration unavailable")?
+            .clone();
+        let mut files = EditorFiles(Vec::new());
+        let (_, report) = inspect_score(&config, text, &mut files)?;
+        Ok(report)
+    }
 }
 fn adapter(
     config: &Config,
@@ -320,6 +367,7 @@ fn start(config: &Config) -> io::Result<Process> {
     })
 }
 pub struct Hosted {
+    validator: ScoreValidator,
     requests: mpsc::SyncSender<Request>,
     pub events: mpsc::Receiver<Output>,
     stop: Arc<AtomicBool>,
@@ -328,6 +376,11 @@ pub struct Hosted {
 impl Hosted {
     pub fn spawn(config: Config) -> io::Result<Self> {
         let process = start(&config)?;
+        let validator = ScoreValidator {
+            config: Arc::new(std::sync::Mutex::new(config.clone())),
+            busy: Arc::new(AtomicBool::new(false)),
+        };
+        let validation_config = validator.config.clone();
         let (requests, rx) = mpsc::sync_channel(64);
         let (tx, events) = mpsc::sync_channel(64);
         let stop = Arc::new(AtomicBool::new(false));
@@ -399,6 +452,7 @@ impl Hosted {
                                         let mut next=config.clone();next.score=score;
                                         let child=start(&next).map_err(|e|e.to_string())?;
                                         drop(process.replace(child));config=next;epoch+=1;
+                                        if let Ok(mut current)=validation_config.lock(){*current=config.clone();}
                                         // Resolve identity from the submitted source before any
                                         // startup snapshots can carry the generic Editor label.
                                         demos=catalogue(&catalogue_config);
@@ -420,6 +474,7 @@ impl Hosted {
                                         let child=start(&next).map_err(|e|e.to_string())?;
                                         drop(process.replace(child));
                                         config=next;epoch+=1;
+                                        if let Ok(mut current)=validation_config.lock(){*current=config.clone();}
                                         adapter=self::adapter(&config,&session,epoch,&demos);
                                         if let Some(request)=pending_demo.replace(request.clone()) {
                                             let _=tx.try_send(Output::Response(Response {request,accepted:false,message:"Demo request superseded".into()}));
@@ -518,6 +573,7 @@ impl Hosted {
                 drop(process);
             })?;
         Ok(Self {
+            validator,
             requests,
             events,
             stop,
@@ -528,6 +584,9 @@ impl Hosted {
         self.requests
             .try_send(Request::Control(Box::new(command)))
             .map_err(|_| "Runtime command queue unavailable".into())
+    }
+    pub fn validator(&self) -> ScoreValidator {
+        self.validator.clone()
     }
     pub fn restart(&self) -> Result<(), String> {
         self.requests
