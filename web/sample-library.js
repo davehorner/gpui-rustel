@@ -18,7 +18,7 @@ export function parseFont(text){
 const MAX_BYTES=32*1024*1024;
 export class SampleLibrary {
   constructor(decode,progress){this.decode=decode;this.progress=progress;this.custom=new Map();this.defaults=new Map();this.manifests=new Map();this.pcm=new Map();this.fonts=new Map();this.aliases=new Map();this.installed=new WeakMap();}
-  async init(){[this.pins,this.gm]=await Promise.all([fetch('./banks/sample-banks.json').then(r=>r.json()),fetch('./banks/gm-fonts.json').then(r=>r.json())]);this.registerMap(this.defaults,this.pins.inline.banks,this.pins.inline.base);this.gm.fonts.gm_electric_piano_1=this.gm.fonts.gm_epiano1;this.gm.fonts.gm_electric_piano_2=this.gm.fonts.gm_epiano2;}
+  async init(){[this.pins,this.gm]=await Promise.all([fetch('./banks/sample-banks.json').then(r=>r.json()),fetch('./banks/gm-fonts.json').then(r=>r.json())]);this.registerMap(this.defaults,this.pins.inline.banks,this.pins.inline.base);this.gm.fonts.gm_acoustic_grand_piano=this.gm.fonts.gm_piano;this.gm.fonts.gm_electric_piano_1=this.gm.fonts.gm_epiano1;this.gm.fonts.gm_electric_piano_2=this.gm.fonts.gm_epiano2;}
   url(value,base){
     if(value.startsWith('github:')){const [owner,repo='samples',branch='main',...dir]=value.slice(7).split('/');return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${dir.length?dir.join('/')+'/':''}strudel.json`;}
     const url=new URL(value,base||location.href);if(!['http:','https:'].includes(url.protocol))throw Error('Browser samples require HTTP(S) URLs');return url.href;

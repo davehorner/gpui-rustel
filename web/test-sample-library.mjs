@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {SampleLibrary} from './sample-library.js';
+const gm=JSON.parse(await readFile(new URL('../.build-sources/rustel-browser-engine/crates/runtime/assets/gm-fonts.json',import.meta.url),'utf8'));
+const requested=[];
+globalThis.fetch=async url=>{
+  requested.push(url);
+  if(url==='./banks/gm-fonts.json')return {json:async()=>structuredClone(gm)};
+  if(url==='./banks/sample-banks.json')return {json:async()=>({inline:{banks:{},base:'https://samples.example/'},sources:[]})};
+  assert.equal(url,`${gm.base}/${gm.fonts.gm_piano[0]}.js`);
+  const text="{zones:[{sample:'AAAAAA==',sampleRate:44100,originalPitch:6000,keyRangeLow:0,keyRangeHigh:127}]}";
+  return {ok:true,headers:new Headers(),arrayBuffer:async()=>new TextEncoder().encode(text).buffer};
+};
+const library=new SampleLibrary(()=>{throw Error('Raw PCM fixture needs no browser decoder')},()=>{});
+await library.init();
+assert.deepEqual(library.gm.fonts.gm_acoustic_grand_piano,gm.fonts.gm_piano);
+let registered;
+const engine={needs_sample:()=>true,install_pcm:()=>42,register_bank:(name,json)=>registered={name,entries:JSON.parse(json)}};
+await library.ensure(engine,{s:'gm_acoustic_grand_piano',note:60},48000);
+assert.equal(registered.name,'gm_acoustic_grand_piano');
+assert.equal(registered.entries[0].id,42);
+assert.equal(registered.entries[0].root,60);
+assert.equal(requested.filter(url=>url.endsWith('.js')).length,1);
+console.log('PASS: GM grand piano alias resolves a pinned font and installs PCM under the requested name');
