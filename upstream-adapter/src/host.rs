@@ -70,6 +70,72 @@ fn source(path: &std::path::Path) -> io::Result<String> {
     }
     Ok(value)
 }
+struct EditorFiles(Vec<PathBuf>);
+impl Drop for EditorFiles {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+fn editor_score(config: &Config, text: &str, files: &mut EditorFiles) -> Result<PathBuf, String> {
+    use std::sync::atomic::AtomicU64;
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    if text.len() > 512 * 1024 {
+        return Err("Score exceeds 512 KiB".into());
+    }
+    let directory = config.score.parent().unwrap_or(std::path::Path::new("."));
+    let path = directory.join(format!(
+        ".rustel-editor-{}-{}.js",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    files.0.push(path.clone());
+    file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    drop(file);
+    let log = path.with_extension("validation.log");
+    let output = std::fs::File::create(&log).map_err(|e| e.to_string())?;
+    files.0.push(log.clone());
+    let mut command = std::process::Command::new(&config.executable);
+    command
+        .arg("validate")
+        .arg(&path)
+        .arg("--json")
+        .stdin(Stdio::null())
+        .stdout(output.try_clone().map_err(|e| e.to_string())?)
+        .stderr(output);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let began = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            if !status.success() {
+                let message = source(&log).unwrap_or_default();
+                return Err(format!(
+                    "Score rejected: {}",
+                    message.chars().take(4096).collect::<String>()
+                ));
+            }
+            break;
+        }
+        if began.elapsed() > Duration::from_secs(8) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Score validation timed out; previous score kept".into());
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    Ok(path)
+}
 fn adapter(
     config: &Config,
     session: &str,
@@ -164,9 +230,9 @@ fn start(config: &Config) -> io::Result<Process> {
         let mut reader = BufReader::new(stderr);
         while let Ok(Some(line)) = read_line(&mut reader) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
-                && (v.get("live_error").is_some() || v.get("error").is_some())
+                && (v.get("live_error").is_some() || v.get("error").is_some() || v.get("log").is_some())
                 && errors
-                    .send(serde_json::json!({"adapter_error":v}).to_string())
+                    .send(serde_json::json!({"adapter_error":v.get("log").or_else(||v.get("live_error")).and_then(|v|v.get("message")).and_then(|v|v.as_str()).map(str::to_owned).unwrap_or_else(||v.to_string())}).to_string())
                     .is_err()
             {
                 break;
@@ -215,6 +281,7 @@ impl Hosted {
                         .as_millis()
                 );
                 let mut config=config;
+                let mut editor_files=EditorFiles(Vec::new());
                 let demos=catalogue(&config);
                 let mut epoch=1;
                 let mut adapter=adapter(&config,&session,epoch,&demos);
@@ -238,11 +305,24 @@ impl Hosted {
                             }
                             Request::Control(c) => {
                                 let request = c.request.clone();
-                                if process.is_none() && matches!(c.transport,Some(music_link::TransportCommand::Play)) {
+                                if matches!(c.transport,Some(music_link::TransportCommand::Play)) {
                                     let result=c.validate(&adapter.snapshot).map_err(str::to_owned).and_then(|()| {
                                         let child=start(&config).map_err(|e|e.to_string())?;
                                         process=Some(child);epoch+=1;adapter=self::adapter(&config,&session,epoch,&demos);
                                         pending_demo=Some(request.clone());Ok(())
+                                    });
+                                    if let Err(message)=result {let _=tx.try_send(Output::Response(Response {request,accepted:false,message}));}
+                                    continue;
+                                }
+                                if let Some(text)=&c.source_update {
+                                    let result=c.validate(&adapter.snapshot).map_err(str::to_owned).and_then(|()| {
+                                        let score=editor_score(&config,text,&mut editor_files)?;
+                                        let mut next=config.clone();next.score=score;
+                                        let child=start(&next).map_err(|e|e.to_string())?;
+                                        drop(process.replace(child));config=next;epoch+=1;
+                                        adapter=self::adapter(&config,&session,epoch,&demos);adapter.snapshot.demo="Editor".into();
+                                        if let Some(previous)=pending_demo.replace(request.clone()) {let _=tx.try_send(Output::Response(Response {request:previous,accepted:false,message:"Score load superseded".into()}));}
+                                        Ok(())
                                     });
                                     if let Err(message)=result {let _=tx.try_send(Output::Response(Response {request,accepted:false,message}));}
                                     continue;
@@ -295,8 +375,13 @@ impl Hosted {
                             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&record)
                                 && let Some(error) = value.get("adapter_error")
                             {
-                                let _ = tx.try_send(Output::Status(error.to_string()));
+                                let _ = tx.try_send(Output::Status(error.as_str().map(str::to_owned).unwrap_or_else(||error.to_string())));
                                 continue;
+                            }
+                            if let Ok(value)=serde_json::from_str::<serde_json::Value>(&record) {
+                                if let Some(message)=value.get("live_error").and_then(|v|v.get("message")).and_then(|v|v.as_str()) {
+                                    let _=tx.try_send(Output::Status(message.chars().take(4096).collect()));
+                                }
                             }
                             if record.contains("\"ui_layout\"") {
                                 adapter.set_source(

@@ -18,8 +18,38 @@ pub struct State {
     pub status: String,
     pub feedback: String,
     pub pending: BTreeMap<String, Instant>,
+    pub messages: Vec<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub control_replies: BTreeMap<String, std::sync::mpsc::SyncSender<music_link::Response>>,
 }
 impl State {
+    pub fn log(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        let message = message.chars().take(4096).collect::<String>();
+        if self.messages.last() == Some(&message) {
+            return;
+        }
+        self.messages.push(message);
+        if self.messages.len() > 200 {
+            self.messages.remove(0);
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn reply(&mut self, response: &music_link::Response) {
+        self.log(format!(
+            "{}: {} {}",
+            response.request,
+            if response.accepted {
+                "accepted"
+            } else {
+                "rejected"
+            },
+            response.message
+        ));
+        if let Some(sender) = self.control_replies.remove(&response.request) {
+            let _ = sender.try_send(response.clone());
+        }
+    }
     pub fn prune(&mut self) {
         self.sessions
             .retain(|_, v| v.at.elapsed() < Duration::from_secs(3));
@@ -35,6 +65,9 @@ impl State {
         let before = self.pending.len();
         self.pending
             .retain(|_, deadline| *deadline > Instant::now());
+        #[cfg(not(target_arch = "wasm32"))]
+        self.control_replies
+            .retain(|request, _| self.pending.contains_key(request));
         if before != self.pending.len() {
             self.feedback = "Command acknowledgement timed out".into();
         }

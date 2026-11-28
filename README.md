@@ -45,7 +45,17 @@ Invoke-RestMethod http://127.0.0.1:9620 -Method Post -ContentType application/js
 
 Run `python scripts/check_mcp.py` with desktop Rustel open to verify initialization, tool discovery, procedural scene discovery and a live transform query.
 
-Scene queries and edits operate on the actual music-stage world. Procedural entities are added to the viewer catalogue and their rows refresh twice per second. Rustel regenerates note bars, fox transforms and the music camera, so edits to those generated values can be overwritten on subsequent updates. This does not expose Rustel score evaluation or music playback as MCP tools; viewer animation playback controls affect scene animation, not the audio transport. The WASM/static Pages app does not run a native HTTP MCP server. Port-binding failures remain viewer notices; the startup line reports the requested address, not confirmation that binding succeeded.
+Scene queries and edits operate on the actual music-stage world. Procedural entities are added to the viewer catalogue and their rows refresh twice per second. Rustel regenerates note bars, fox transforms and the music camera, so edits to those generated values can be overwritten on subsequent updates. Viewer animation tools affect scene animation. The separate `*_music_*` tools below control the real music runtime. The WASM/static Pages app does not run a native HTTP MCP server. Port-binding failures remain viewer notices; the startup line reports the requested address, not confirmation that binding succeeded.
+
+## Music MCP and desktop editor
+
+The same desktop endpoint advertises `get_music_state`, `get_music_score`, `get_music_messages`, `set_music_transport`, `set_music_tempo`, `set_music_lane_transpose`, `set_music_lane_solo`, `select_music_demo`, and `execute_music_score`.
+
+Read state first. Mutations require its exact `session` and `generation`; stale generations, invalid arguments and unsupported pause/seek requests fail before enqueueing. A successful mutation waits for its own runtime acknowledgement (or, for score loads, the new score snapshot). This confirms runtime control handling, not audible output or GPU presentation. An acknowledgement timeout reports an unknown outcome: query state before retrying. Hosted native Play restarts the owned process; pause/seek remain unavailable on that backend. Hub connections use the capabilities their producer advertises. Arbitrary source execution requires an owned runtime.
+
+Desktop **Code & Console** opens a native GPUI multiline editor and the latest 200 runtime messages (newest first). **Run** or **Ctrl+Enter** validates and executes a private sibling `.js` score file, preserving the original and relative asset base directory. Invalid edits leave the previous score playing. Validation has an eight-second deadline; loading a valid edit restarts the owned runtime. The temporary files are removed at normal shutdown. **Load current score** replaces the editor buffer; **Stop** stops playback. Editing is kept in memory while the window is open; use the original source files for permanent saving. This does not add a desktop editor to external hub producers.
+
+`python scripts/check_music_mcp.py` exercises real transport acknowledgements, stale/unsupported controls, score execution, error recovery and messages, then restores the initial demo. Run it against an owned desktop runtime.
 
 ## Publishing
 

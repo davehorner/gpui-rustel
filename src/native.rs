@@ -56,6 +56,9 @@ pub fn run() {
     };
     let mut visual = Visual::default();
     visual.agent_port = if no_agent { None } else { agent_port };
+    if !no_agent {
+        visual.music_mcp = Some(bridge.music_mcp());
+    }
     let settings = Arc::new(Mutex::new(visual));
     if !no_agent {
         eprintln!(

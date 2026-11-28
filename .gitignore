@@ -8,3 +8,5 @@
 /web/banks/
 
 /.build-sources/
+
+.rustel-editor-*

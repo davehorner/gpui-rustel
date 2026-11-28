@@ -15,3 +15,6 @@ mod state;
 pub use native::run as run_native;
 #[cfg(target_arch = "wasm32")]
 mod web;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod music_mcp;

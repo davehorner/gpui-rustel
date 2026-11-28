@@ -1,0 +1,60 @@
+--- a/apps/viewer/src/resources.rs
++++ b/apps/viewer/src/resources.rs
+@@ -1020,6 +1020,7 @@
+ #[derive(Clone, Default)]
+ pub struct AgentChannel {
+     pub pending: Arc<Mutex<Vec<Pending>>>,
++    pub extension: Arc<Mutex<Option<crate::core::McpExtension>>>,
+ }
+ 
+ impl Drop for ViewerResources {
+--- a/apps/viewer/src/core.rs
++++ b/apps/viewer/src/core.rs
+@@ -1110,3 +1110,16 @@
+     crate::commands::scene::build_rows(&mut viewer, &world.storage);
+     world.resources.insert(viewer);
+ }
++
++/// Thread-safe host tools served through the existing native MCP endpoint.
++#[cfg(not(target_arch = "wasm32"))]
++#[derive(Clone)]
++pub struct McpExtension {
++    pub tools: Vec<serde_json::Value>,
++    pub call: std::sync::Arc<dyn Fn(&str, serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync>,
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub fn set_mcp_extension(world: &World, extension: McpExtension) {
++    let channel = world.res::<crate::resources::AgentChannel>();
++    *channel.extension.lock().unwrap() = Some(extension);
++}
+--- a/apps/viewer/src/commands/agent.rs
++++ b/apps/viewer/src/commands/agent.rs
+@@ -121,7 +121,11 @@
+             }),
+         )),
+         "notifications/initialized" => None,
+-        "tools/list" => Some(rpc_result(id, json!({ "tools": tool_list() }))),
++        "tools/list" => {
++            let mut tools = tool_list();
++            if let Some(extension) = queue.extension.lock().unwrap().as_ref() { tools.extend(extension.tools.clone()); }
++            Some(rpc_result(id, json!({ "tools": tools })))
++        },
+         "tools/call" => Some(queue_call(queue, id, params)),
+         _ => Some(rpc_error(id, -32601, "no such method")),
+     }
+@@ -131,6 +135,15 @@
+     let Some(name) = params.get("name").and_then(Value::as_str) else {
+         return rpc_error(id, -32602, "the call named no tool");
+     };
++    let extension = queue.extension.lock().unwrap().clone();
++    if let Some(extension) = extension.filter(|e| e.tools.iter().any(|tool| tool["name"] == name)) {
++        let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
++        if !arguments.is_object() { return rpc_error(id, -32602, "tool arguments must be an object"); }
++        let result = (extension.call)(name, arguments);
++        let is_error = result.is_err();
++        let value = result.unwrap_or_else(|error| json!({"error": error}));
++        return rpc_result(id, json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":is_error}));
++    }
+     if !tool_list().iter().any(|tool| tool["name"] == name) {
+         return rpc_error(id, -32602, "no such tool");
+     }

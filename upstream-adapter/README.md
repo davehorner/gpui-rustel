@@ -12,7 +12,7 @@ python upstream-adapter/build_runtime.py
 cargo run --manifest-path upstream-adapter/Cargo.toml --features hub --locked -- --rustel=upstream-adapter/target/upstream-rustel/target/release/rustel.exe --score=../bespoke_rustel/music-link/demo.strudel
 ```
 
-Add `--silent` to validate without opening an audio device. The runtime watches the selected score; this adapter does not rewrite it. Native sample loading retains upstream behavior; this minimal build does not include every upstream default feature.
+Add `--silent` to validate without opening an audio device. The runtime watches the selected score. Hosted editor execution validates a private sibling `.js` copy and restarts playback from that copy; it does not rewrite the original. Native sample loading retains upstream behavior; this minimal build does not include every upstream default feature.
 
 Pinned upstream: `79fd1fb3fd64c0a637f475ad24de675fd5b2ac59` (0.1.9). Build features are `device-audio,midi`: `device-audio` alone currently fails with unresolved `midi_clock` references. Upstream remains AGPL-3.0-or-later; its source/license stay in the clean checkout. No binary is checked in.
 
@@ -33,7 +33,7 @@ For the native GPUI app, use its `--rustel=EXE --score=FILE` mode. It uses this 
 | Stereo pairs / vectorscope | Unavailable in upstream ui_audio |
 | Named const provenance / helper graph | Unavailable in upstream output |
 | Full cutoff/pan/resonance control maps | Unavailable; value labels are not parsed into fake data |
-| Demo switching / source rewriting | Not implemented by this adapter |
+| Demo switching / edited source | The owned supervisor switches catalogued demos and validates private edited score copies; the bare stdio encoder does not rewrite source |
 | Lane mute | Upstream supports it; existing music-link Command has no mute field yet |
 
 Capabilities are attached as an additional snapshot JSON field for compatible clients. Existing music-link structs remain unchanged. Process epochs prevent command/audio generation collisions after a child restart. Queues and line sizes are bounded; acknowledgements report acceptance, rather than assuming a queued command applied. Normal Hosted drop kills and waits for the owned child; applications must drain shutdown before exiting. Crash recovery/OS process-tree containment is further work.

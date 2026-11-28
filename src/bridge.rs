@@ -81,6 +81,7 @@ impl Bridge {
                                 if let Ok(audio) = message.read_json::<AudioFrame>() { state.receive_audio(audio); }
                             } else if let Ok(response) = message.read_json::<Response>()
                                 && state.pending.remove(&response.request).is_some() {
+                                    state.reply(&response);
                                     state.feedback = if response.accepted { "Applied".into() } else { response.message };
                             }
                         }
@@ -169,6 +170,7 @@ impl Bridge {
                             Output::Audio(a) => state.receive_audio(a),
                             Output::Response(r) => {
                                 if state.pending.remove(&r.request).is_some() {
+                                    state.reply(&r);
                                     state.feedback = if r.accepted {
                                         "Applied".into()
                                     } else {
@@ -177,6 +179,7 @@ impl Bridge {
                                 }
                             }
                             Output::Status(message) => {
+                                state.log(message.clone());
                                 if message.starts_with("Rustel stopped") {
                                     state.sessions.clear();
                                     state.audio.clear();
@@ -202,6 +205,9 @@ impl Bridge {
             worker: Some(worker),
             restart: Some(restart),
         })
+    }
+    pub fn music_mcp(&self) -> nightshade_viewer_core::McpExtension {
+        crate::music_mcp::extension(self.shared.clone(), self.commands.clone(), self.is_hosted())
     }
     pub fn is_hosted(&self) -> bool {
         self.restart.is_some()
@@ -246,7 +252,7 @@ impl Bridge {
         if self.commands.try_send(command).is_ok() {
             state
                 .pending
-                .insert(request, Instant::now() + Duration::from_secs(5));
+                .insert(request, Instant::now() + Duration::from_secs(15));
             state.feedback = "Applying…".into();
         } else {
             state.feedback = "Command queue unavailable".into();

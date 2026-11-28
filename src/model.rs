@@ -27,6 +27,8 @@ pub struct Visual {
     pub camera_reframe: u64,
     #[cfg(not(target_arch = "wasm32"))]
     pub agent_port: Option<u16>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub music_mcp: Option<nightshade_viewer_core::McpExtension>,
     pub fox_opacity: f32,
     pub gain: f32,
     pub zoom: f32,
@@ -46,6 +48,8 @@ impl Default for Visual {
             camera_reframe: 0,
             #[cfg(not(target_arch = "wasm32"))]
             agent_port: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            music_mcp: None,
             fox_opacity: 0.65,
             gain: 4.,
             zoom: 1.,

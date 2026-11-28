@@ -120,6 +120,10 @@ impl Stage {
         host.world
             .res_mut::<nightshade_render::data::config::RenderSettings>()
             .clear_color = [0.003, 0.006, 0.012, 1.];
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(extension) = settings.lock().unwrap().music_mcp.clone() {
+            nightshade_viewer_core::set_mcp_extension(&host.world, extension);
+        }
         // Embedded bytes give native and WASM the same model without a remote fetch.
         let mut import =
             nightshade_gltf::commands::import_gltf_from_bytes(include_bytes!("../assets/fox.glb"))?;

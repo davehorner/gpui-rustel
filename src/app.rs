@@ -1,6 +1,8 @@
 use crate::bridge::{Bridge, command};
 use crate::model::{Frame, MODES, Settings};
 use crate::{charts, model};
+#[cfg(not(target_arch = "wasm32"))]
+use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::*;
 use gpui_kit::{Animation, AnimationExt};
 use gpui_kit::{
@@ -43,6 +45,12 @@ pub(crate) struct MusicApp {
     focused: String,
     source_open: bool,
     camera_controls_open: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    console_open: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    editor_loaded: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    editor: Entity<TextareaState>,
     source_scroll: ScrollHandle,
     drag: Option<Point<Pixels>>,
     tempo: Entity<InputState>,
@@ -50,6 +58,143 @@ pub(crate) struct MusicApp {
     _poll: Task<()>,
 }
 impl MusicApp {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(snapshot) = self.snapshot() {
+            let text = snapshot.source.clone();
+            self.editor
+                .update(cx, |editor, cx| editor.set_value(text, window, cx));
+            self.editor_loaded = true;
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn run_editor(&mut self, cx: &mut Context<Self>) {
+        let text = self.editor.read(cx).value().to_string();
+        if text.len() > 512 * 1024 {
+            self.bridge
+                .shared
+                .lock()
+                .unwrap()
+                .log("Score exceeds 512 KiB");
+            return;
+        }
+        self.bridge
+            .shared
+            .lock()
+            .unwrap()
+            .log("Validating editor score…");
+        self.send(|c| c.source_update = Some(text.clone()), cx);
+    }
+    fn console_toggle(&self, cx: &mut Context<Self>) -> AnyElement {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Button::new("desktop-console-toggle")
+                .label(if self.console_open {
+                    "Hide code & console"
+                } else {
+                    "Code & Console"
+                })
+                .on_click(cx.listener(|app, _, window, cx| {
+                    app.console_open = !app.console_open;
+                    if app.console_open && !app.editor_loaded {
+                        app.load_editor(window, cx);
+                    }
+                    cx.notify();
+                }))
+                .into_any_element()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = cx;
+            div().into_any_element()
+        }
+    }
+    fn desktop_console(&self, cx: &mut Context<Self>) -> AnyElement {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !self.console_open {
+                return div().into_any_element();
+            }
+            let state = self.bridge.shared.lock().unwrap();
+            let messages = state.messages.clone();
+            let status = state.status.clone();
+            drop(state);
+            let enabled = self.bridge.is_hosted() && self.snapshot().is_some();
+            div()
+                .h(px(360.))
+                .flex_shrink_0()
+                .p_2()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .border_t_1()
+                .border_color(rgb(0x48627c))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            Button::new("editor-run")
+                                .label("Run · Ctrl+Enter")
+                                .primary()
+                                .disabled(!enabled)
+                                .on_click(cx.listener(|app, _, _, cx| app.run_editor(cx))),
+                        )
+                        .child(
+                            Button::new("editor-stop")
+                                .label("Stop")
+                                .disabled(!enabled)
+                                .on_click(cx.listener(|app, _, _, cx| {
+                                    app.send(|c| c.transport = Some(TransportCommand::Stop), cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("editor-load")
+                                .label("Load current score")
+                                .on_click(
+                                    cx.listener(|app, _, window, cx| app.load_editor(window, cx)),
+                                ),
+                        )
+                        .child(
+                            Button::new("console-clear")
+                                .label("Clear messages")
+                                .on_click(cx.listener(|app, _, _, cx| {
+                                    app.bridge.shared.lock().unwrap().messages.clear();
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(Textarea::new(&self.editor).w_full().h(px(170.)))
+                .child(if enabled {
+                    "Editor runs a private score copy; original files stay unchanged."
+                } else {
+                    "Score execution requires an owned Rustel runtime (--rustel and --score)."
+                })
+                .child(
+                    div()
+                        .id("desktop-console-messages")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .text_xs()
+                        .child(status)
+                        .children(messages.into_iter().rev().enumerate().map(
+                            |(index, message)| {
+                                gpui_kit::base::SelectableText::new(
+                                    ("runtime-message", index),
+                                    message,
+                                )
+                            },
+                        )),
+                )
+                .into_any_element()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = cx;
+            div().into_any_element()
+        }
+    }
     fn camera_button(
         &self,
         id: &'static str,
@@ -343,6 +488,22 @@ impl MusicApp {
                 }
             }
         });
+        #[cfg(not(target_arch = "wasm32"))]
+        let editor = cx.new(|cx| TextareaState::new(window, cx));
+        #[cfg(not(target_arch = "wasm32"))]
+        let editor_subscription =
+            cx.subscribe_in(&editor, window, |app, _, event: &InputEvent, _, cx| {
+                if matches!(
+                    event,
+                    InputEvent::PressEnter {
+                        secondary: true,
+                        ..
+                    }
+                ) && app.bridge.is_hosted()
+                {
+                    app.run_editor(cx);
+                }
+            });
         let poll = cx.spawn(async |app, cx| {
             loop {
                 cx.background_executor()
@@ -397,10 +558,22 @@ impl MusicApp {
             focused: String::new(),
             source_open: false,
             camera_controls_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            console_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            editor_loaded: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            editor,
             source_scroll: ScrollHandle::new(),
             drag: None,
             tempo,
-            _subscriptions: vec![subscription],
+            _subscriptions: {
+                #[allow(unused_mut)]
+                let mut subscriptions = vec![subscription];
+                #[cfg(not(target_arch = "wasm32"))]
+                subscriptions.push(editor_subscription);
+                subscriptions
+            },
             _poll: poll,
         }
     }
@@ -483,6 +656,7 @@ impl Render for MusicApp {
                         let _ = cx;
                     })),
             )
+            .child(self.console_toggle(cx))
             .child(self.menu(
                 "session",
                 if v.session.is_empty() {
@@ -950,6 +1124,7 @@ impl Render for MusicApp {
                         d.child(source.when(narrow, |s| s.w_full().h(px(220.))))
                     }),
             )
+            .child(self.desktop_console(cx))
             .child(clock)
             .when_some(s.as_ref().and_then(|s| s.file_error.clone()), |d, error| {
                 d.child(error)
