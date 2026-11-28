@@ -1,3 +1,4 @@
+mod commands;
 use crate::bridge::{Bridge, command};
 use crate::model::{Frame, MODES, Settings};
 use crate::{charts, model};
@@ -508,6 +509,15 @@ impl MusicApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        #[cfg(target_os = "macos")]
+        let shortcut = "cmd-shift-p";
+        #[cfg(not(target_os = "macos"))]
+        let shortcut = "ctrl-shift-p";
+        cx.bind_keys([KeyBinding::new(
+            shortcut,
+            commands::OpenCommands,
+            Some("Rustel"),
+        )]);
         let tempo = cx.new(|cx| InputState::new(window, cx).placeholder("BPM, beats, denominator"));
         let subscription = cx.subscribe_in(&tempo, window, |app, _, event: &InputEvent, _, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
@@ -592,6 +602,7 @@ impl MusicApp {
                 }
             }
         });
+        window.focus(&viewport.focus_handle(cx), cx);
         Self {
             bridge,
             settings,
@@ -687,6 +698,11 @@ impl Render for MusicApp {
             );
         }
         let toolbar = div()
+            .child(
+                Button::new("rustel-commands")
+                    .label("Commands")
+                    .on_click(cx.listener(|app, _, window, cx| app.open_commands(window, cx))),
+            )
             .flex()
             .flex_wrap()
             .items_center()
@@ -1129,17 +1145,15 @@ impl Render for MusicApp {
                     }),
             );
         div()
+            .key_context("Rustel")
+            .on_action(cx.listener(|app, _: &commands::OpenCommands, window, cx| {
+                app.open_commands(window, cx)
+            }))
             .size_full()
             .flex()
             .flex_col()
             .bg(rgb(0x08111c))
             .text_color(rgb(0xdce9f7))
-            .child(
-                div()
-                    .p_3()
-                    .child("GPUI RUSTEL · LIVE PATTERN FIELD")
-                    .child(format!("{status} · {feedback}")),
-            )
             .child(
                 toolbar
                     .when(narrow, |toolbar| {
@@ -1174,7 +1188,14 @@ impl Render for MusicApp {
                     }),
             )
             .child(self.desktop_console(cx))
-            .child(clock)
+            .child(
+                clock.child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x91aac4))
+                        .child(format!("{status} · {feedback}")),
+                ),
+            )
             .when_some(s.as_ref().and_then(|s| s.file_error.clone()), |d, error| {
                 d.child(error)
             })

@@ -25,6 +25,8 @@ Open the same site with `?studio` to run upstream Rustel Studio entirely in the 
 
 The WASM viewer also has a **Code & Console** panel. Edit the current score and press **Run** (Ctrl/Command+Enter) to evaluate it in Rustel's worker, or **Stop** to pause playback. The panel keeps a local draft and shows sample loading, evaluation errors and Rustel logs. Use `console.log('message')` for literal text; double-quoted strings follow Strudel's mini-notation rules. **Load current score** replaces the draft after confirmation. Messages are capped at 200 entries.
 
+The GPUI viewer’s **Commands** button opens a searchable palette, also available with **Ctrl+Shift+P** (**Command+Shift+P** on macOS). Search transport actions, demos, views, camera controls, fullscreen and desktop editor commands. Unavailable actions are disabled, and availability is checked again before execution. Runtime status appears in the footer.
+
 ## Native
 
 ```powershell
