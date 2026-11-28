@@ -51,6 +51,8 @@ Scene queries and edits operate on the actual music-stage world. Procedural enti
 
 ## Music MCP and desktop editor
 
+See the [Music MCP guide](docs/music-mcp.md) for connection instructions, every tool and argument, Python/PowerShell examples, backend support, acknowledgement boundaries and troubleshooting.
+
 The same desktop endpoint advertises `get_music_state`, `get_music_score`, `get_music_messages`, `set_music_transport`, `set_music_tempo`, `set_music_lane_transpose`, `set_music_lane_solo`, `select_music_demo`, and `execute_music_score`.
 
 Read state first. Mutations require its exact `session` and `generation`; stale generations, invalid arguments and unsupported pause/seek requests fail before enqueueing. A successful mutation waits for its own runtime acknowledgement (or, for score loads, the new score snapshot). This confirms runtime control handling, not audible output or GPU presentation. An acknowledgement timeout reports an unknown outcome: query state before retrying. Hosted native Play restarts the owned process; pause/seek remain unavailable on that backend. Hub connections use the capabilities their producer advertises. Arbitrary source execution requires an owned runtime.
