@@ -634,17 +634,19 @@ impl Render for MusicApp {
                         cx.notify();
                     })),
             )
-            .child(
-                self.menu(
-                    "gain",
-                    format!("Audio gain {}×", v.gain),
-                    [1., 2., 4., 8., 16.]
-                        .into_iter()
-                        .map(|g| (format!("{g}×"), Choice::Gain(g)))
-                        .collect(),
-                    cx,
-                ),
-            );
+            .when(matches!(v.mode, 5..=7), |toolbar| {
+                toolbar.child(
+                    self.menu(
+                        "display-gain",
+                        format!("Display gain {}×", v.gain),
+                        [1., 2., 4., 8., 16.]
+                            .into_iter()
+                            .map(|g| (format!("{g}×"), Choice::Gain(g)))
+                            .collect(),
+                        cx,
+                    ),
+                )
+            });
         let content = if v.mode == 0 {
             self.viewport.clone().into_any_element()
         } else {
